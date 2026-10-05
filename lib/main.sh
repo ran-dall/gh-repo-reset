@@ -147,11 +147,27 @@ gh_repo_reset_main() {
   log "Snapshotting repository state..."
 
   save_repo_state "$BACKUP_DIR"
-  snapshot_labels "$BACKUP_DIR"
-  snapshot_deploy_keys "$BACKUP_DIR"
-  snapshot_variables "$BACKUP_DIR"
-  snapshot_secrets "$BACKUP_DIR"
-  snapshot_environments "$BACKUP_DIR"
+
+  # Independent reads are intentionally bounded: enough concurrency to hide
+  # network latency without creating an aggressive burst against GitHub APIs.
+  run_snapshot_jobs "$BACKUP_DIR" \
+    snapshot_git_and_metadata \
+    snapshot_environments \
+    snapshot_labels \
+    snapshot_actions_settings \
+    snapshot_deploy_keys \
+    snapshot_variables \
+    snapshot_secrets \
+    snapshot_access \
+    snapshot_rulesets \
+    snapshot_branch_protection \
+    snapshot_actions_policies \
+    snapshot_autolinks \
+    snapshot_app_installations \
+    snapshot_org_bindings \
+    snapshot_custom_properties \
+    snapshot_pages \
+    snapshot_webhooks
 
   # Deployment policy entries are kept as TSV so restore stays Bash + gh only.
   local envdir metadata_present
@@ -164,18 +180,6 @@ gh_repo_reset_main() {
       >"$envdir/deployment-branch-policies.tsv" 2>/dev/null || :
   done
 
-  snapshot_actions_settings "$BACKUP_DIR"
-  snapshot_actions_policies "$BACKUP_DIR"
-  snapshot_autolinks "$BACKUP_DIR"
-  snapshot_rulesets "$BACKUP_DIR"
-  snapshot_branch_protection "$BACKUP_DIR"
-  snapshot_access "$BACKUP_DIR"
-  snapshot_app_installations "$BACKUP_DIR"
-  snapshot_org_bindings "$BACKUP_DIR"
-  snapshot_custom_properties "$BACKUP_DIR"
-  snapshot_pages "$BACKUP_DIR"
-  snapshot_webhooks "$BACKUP_DIR"
-  snapshot_git_and_metadata "$BACKUP_DIR"
   prepare_initial_commit "$BACKUP_DIR"
 
   metadata_present=0
