@@ -3,9 +3,13 @@
 snapshot_git_and_metadata () 
 { 
     local dir="$1";
-    log "Creating full local mirror backup...";
+    vlog "Creating full local mirror backup...";
     gh auth setup-git > /dev/null;
-    gh repo clone "$REPO" "$dir/git.git" -- --mirror;
+    if (( VERBOSE )); then
+        gh repo clone "$REPO" "$dir/git.git" -- --mirror;
+    elif ! gh repo clone "$REPO" "$dir/git.git" -- --mirror > /dev/null 2>&1; then
+        die "could not create the Git mirror backup";
+    fi;
     source "$dir/repo-state.sh";
     write_assignment "$dir/repo-state.sh" LFS_USED false;
     write_assignment "$dir/repo-state.sh" LFS_BACKUP none;
@@ -23,7 +27,14 @@ snapshot_git_and_metadata ()
             warn "Git LFS is used but git-lfs is not installed; LFS objects are NOT backed up";
         fi;
     fi;
-    best_effort "wiki mirror backup" git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git";
+    if (( VERBOSE )); then
+        if ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git"; then
+            vwarn "wiki mirror is unavailable; continuing without it";
+            rm -rf "$dir/wiki.git";
+        fi;
+    elif ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git" > /dev/null 2>&1; then
+        rm -rf "$dir/wiki.git";
+    fi;
     snapshot_api "$dir/issues.json" "repos/$REPO/issues?state=all&per_page=100";
     snapshot_api "$dir/pulls.json" "repos/$REPO/pulls?state=all&per_page=100";
     snapshot_api "$dir/releases.json" "repos/$REPO/releases?per_page=100";
@@ -46,7 +57,7 @@ prepare_initial_commit ()
     commit="$(printf 'Initial commit\n' | GIT_AUTHOR_NAME="$name" GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_NAME="$name" GIT_COMMITTER_EMAIL="$email" git -C "$dir/git.git" commit-tree "$tree")";
     git -C "$dir/git.git" update-ref refs/gh-repo-reset/initial "$commit";
     printf '%s\n' "$commit" > "$dir/initial-commit.txt";
-    log "Prepared fresh root commit $commit from $DEFAULT_BRANCH's current tree."
+    vlog "Prepared fresh root commit $commit from $DEFAULT_BRANCH's current tree."
 }
 
 create_repository () 
@@ -62,7 +73,9 @@ create_repository ()
     esac;
     for attempt in 1 2 3 4 5;
     do
-        if gh repo create "$REPO" "--$visibility"; then
+        if (( VERBOSE )); then
+            gh repo create "$REPO" "--$visibility" && return 0;
+        elif gh repo create "$REPO" "--$visibility" > /dev/null 2>&1; then
             return 0;
         fi;
         (( attempt < 5 )) && sleep 2;
@@ -79,7 +92,11 @@ push_initial_commit ()
     if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" == complete ]]; then
         best_effort "restoring Git LFS objects" git -C "$dir/git.git" lfs push origin refs/gh-repo-reset/initial;
     fi;
-    git -C "$dir/git.git" push --force origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH"
+    if (( VERBOSE )); then
+        git -C "$dir/git.git" push --force origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH";
+    elif ! git -C "$dir/git.git" push --force origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" > /dev/null 2>&1; then
+        die "could not push the fresh initial commit";
+    fi
 }
 
 restore_wiki () 
