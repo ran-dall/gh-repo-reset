@@ -17,5 +17,8 @@ manual_followup ()
     fi;
     if grep -q '^pages[[:space:]]' "$dir/manual-items.tsv"; then
         open_url "$base/pages";
+    fi;
+    if grep -q '^deploy_keys[[:space:]]' "$dir/manual-items.tsv"; then
+        open_url "$base/keys";
     fi
 }
