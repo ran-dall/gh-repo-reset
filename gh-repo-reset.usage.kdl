@@ -15,6 +15,7 @@ flag "--secrets-dir <dir>" help="Read explicitly supplied local secret values fr
 flag "--no-open" help="Do not open manual follow-up pages after a real reset"
 flag "--dry-run" help="Snapshot and report only; do not delete or recreate anything"
 flag "--verbose" help="Show detailed detection, snapshot, and restore diagnostics"
+flag "--resume-from <dir>" help="Resume an interrupted reset from a persistent safety backup"
 flag "--self-test" help="Run the internal local self-test"
 
 arg "[repo]" help="Target repository in OWNER/REPO form; inferred with gh repo view when omitted"
