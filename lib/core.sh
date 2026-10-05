@@ -87,13 +87,34 @@ record_restore_failure ()
 
 best_effort () 
 { 
-    local label="$1";
+    local label="$1" err;
     shift;
-    if ! "$@"; then
-        record_restore_failure "$label";
-        warn "$label failed; continuing.";
+
+    if (( ${VERBOSE:-0} )); then
+        if ! "$@"; then
+            record_restore_failure "$label";
+            warn "$label failed; continuing.";
+        fi;
         return 0;
-    fi
+    fi;
+
+    err="$(mktemp)";
+    if "$@" > /dev/null 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+
+    record_restore_failure "$label";
+    if [[ -n "${BACKUP_DIR:-}" ]]; then
+        {
+            printf '[%s]\n' "$label";
+            cat "$err";
+            printf '\n';
+        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
+    fi;
+    warn "$label failed; continuing.";
+    rm -f "$err";
+    return 0
 }
 
 urlencode () 
