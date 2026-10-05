@@ -77,33 +77,38 @@ restore_org_bindings ()
         IFS= read -r config_id < "$dir/org-bindings/code-security-configuration-id" || true;
         payload="$dir/org-bindings/code-security-attach.json";
         printf '{"scope":"selected","selected_repository_ids":[%s]}\n' "$new_repo_id" > "$payload";
-        best_effort "reattaching code security configuration $config_id" api --method POST "orgs/$OWNER/code-security/configurations/$config_id/attach" --input "$payload" > /dev/null;
+        restore_once "code-security-configuration:$config_id" "reattaching code security configuration $config_id" api --method POST "orgs/$OWNER/code-security/configurations/$config_id/attach" --input "$payload";
     fi
 }
 
 restore_pages () 
 { 
-    local dir="$1";
+    local dir="$1" page_key="pages-site";
     [[ -f "$dir/pages-state.sh" ]] || return 0;
     source "$dir/pages-state.sh";
     source "$dir/repo-state.sh";
-    if [[ "$PAGES_BUILD_TYPE" == workflow ]]; then
-        if ! api --method POST "repos/$REPO/pages" -f build_type=workflow > /dev/null 2>&1; then
-            record_restore_failure "workflow-based Pages site";
-            warn "could not recreate workflow-based Pages site";
-            return 0;
-        fi;
-    else
-        if [[ -n "$PAGES_SOURCE_BRANCH" && "$PAGES_SOURCE_BRANCH" == "$DEFAULT_BRANCH" ]]; then
-            if ! api --method POST "repos/$REPO/pages" -f "source[branch]=$PAGES_SOURCE_BRANCH" -f "source[path]=$PAGES_SOURCE_PATH" > /dev/null 2>&1; then
-                record_restore_failure "Pages site";
-                warn "could not recreate Pages site";
+    if ! restore_step_done "$page_key"; then
+        if [[ "$PAGES_BUILD_TYPE" == workflow ]]; then
+            if ! api --method POST "repos/$REPO/pages" -f build_type=workflow > /dev/null 2>&1; then
+                record_restore_failure "workflow-based Pages site";
+                warn "could not recreate workflow-based Pages site";
                 return 0;
             fi;
         else
-            warn "Pages source branch '$PAGES_SOURCE_BRANCH' was not recreated; Pages requires manual follow-up";
-            return 0;
+            if [[ -n "$PAGES_SOURCE_BRANCH" && "$PAGES_SOURCE_BRANCH" == "$DEFAULT_BRANCH" ]]; then
+                if ! api --method POST "repos/$REPO/pages" -f "source[branch]=$PAGES_SOURCE_BRANCH" -f "source[path]=$PAGES_SOURCE_PATH" > /dev/null 2>&1; then
+                    record_restore_failure "Pages site";
+                    warn "could not recreate Pages site";
+                    return 0;
+                fi;
+            else
+                warn "Pages source branch '$PAGES_SOURCE_BRANCH' was not recreated; Pages requires manual follow-up";
+                return 0;
+            fi;
         fi;
+        mark_restore_step_done "$page_key";
+    else
+        vlog "Pages site already recreated; skipping create.";
     fi;
     local page_args=(--method PUT "repos/$REPO/pages" -F "https_enforced=$(bool "$PAGES_HTTPS")");
     [[ -n "$PAGES_CNAME" ]] && page_args+=(-f "cname=$PAGES_CNAME");
@@ -112,7 +117,7 @@ restore_pages ()
 
 restore_webhooks () 
 { 
-    local dir="$1" hdir secret_file new_id;
+    local dir="$1" hdir secret_file new_id id_file;
     shopt -s nullglob;
     for hdir in "$dir"/webhooks/*;
     do
@@ -123,10 +128,18 @@ restore_webhooks ()
             warn "skipping webhook $OLD_HOOK_ID: signing secret cannot be read back; supply $SECRETS_DIR/webhooks/$OLD_HOOK_ID.secret";
             continue;
         fi;
-        if ! new_id="$(api --method POST "repos/$REPO/hooks" --input "$hdir/create.json" --jq '.id' 2> /dev/null)"; then
-            record_restore_failure "webhook $OLD_HOOK_ID";
-            warn "restoring webhook $OLD_HOOK_ID failed";
-            continue;
+        id_file="$hdir/restored-id";
+        if [[ -s "$id_file" ]]; then
+            IFS= read -r new_id < "$id_file" || true;
+            vlog "webhook $OLD_HOOK_ID already created as $new_id; skipping create.";
+        else
+            if ! new_id="$(api --method POST "repos/$REPO/hooks" --input "$hdir/create.json" --jq '.id' 2> /dev/null)"; then
+                record_restore_failure "webhook $OLD_HOOK_ID";
+                warn "restoring webhook $OLD_HOOK_ID failed";
+                continue;
+            fi;
+            printf '%s\n' "$new_id" > "$id_file";
+            mark_restore_step_done "webhook:$OLD_HOOK_ID";
         fi;
         if [[ -n "$secret_file" && -f "$secret_file" ]]; then
             best_effort "restoring signing secret for webhook $OLD_HOOK_ID" api --method PATCH "repos/$REPO/hooks/$new_id/config" -F "secret=@$secret_file" > /dev/null;
