@@ -341,6 +341,13 @@ restore_step_done ()
     grep -Fqx "$key" "$journal"
 }
 
+restore_step_pending ()
+{
+    local key="$1" pending="${BACKUP_DIR:-}/restore-pending.txt";
+    [[ -n "${BACKUP_DIR:-}" && -f "$pending" ]] || return 1;
+    grep -Fqx "$key" "$pending"
+}
+
 mark_restore_step_done ()
 {
     local key="$1" journal="${BACKUP_DIR:-}/restore-completed.txt";
@@ -349,19 +356,46 @@ mark_restore_step_done ()
     printf '%s\n' "$key" >> "$journal"
 }
 
+mark_restore_step_pending ()
+{
+    local key="$1" pending="${BACKUP_DIR:-}/restore-pending.txt";
+    [[ -n "${BACKUP_DIR:-}" ]] || return 0;
+    restore_step_pending "$key" && return 0;
+    printf '%s\n' "$key" >> "$pending"
+}
+
+clear_restore_step_pending ()
+{
+    local key="$1" pending="${BACKUP_DIR:-}/restore-pending.txt" tmp;
+    [[ -n "${BACKUP_DIR:-}" && -f "$pending" ]] || return 0;
+    tmp="$(mktemp)";
+    grep -Fvx "$key" "$pending" > "$tmp" || true;
+    mv "$tmp" "$pending"
+}
+
 restore_once ()
 {
     local key="$1" label="$2" err;
     shift 2;
     if restore_step_done "$key"; then
+        clear_restore_step_pending "$key";
         vlog "$label already restored; skipping.";
         return 0;
     fi;
+    if restore_step_pending "$key"; then
+        record_restore_failure "$label (unfinished prior attempt)";
+        warn "$label has an unfinished prior attempt; skipping to avoid a duplicate create. Inspect the target before retrying.";
+        return 0;
+    fi;
+
+    mark_restore_step_pending "$key";
 
     if (( ${VERBOSE:-0} )); then
         if "$@"; then
             mark_restore_step_done "$key";
+            clear_restore_step_pending "$key";
         else
+            clear_restore_step_pending "$key";
             record_restore_failure "$label";
             warn "$label failed; continuing.";
         fi;
@@ -371,10 +405,12 @@ restore_once ()
     err="$(mktemp)";
     if "$@" > /dev/null 2> "$err"; then
         mark_restore_step_done "$key";
+        clear_restore_step_pending "$key";
         rm -f "$err";
         return 0;
     fi;
 
+    clear_restore_step_pending "$key";
     record_restore_failure "$label";
     if [[ -n "${BACKUP_DIR:-}" ]]; then
         {
