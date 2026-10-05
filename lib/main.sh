@@ -31,6 +31,8 @@ restore_detected_state ()
 {
   local dir="$1"
   BACKUP_DIR="$dir"
+  : > "$BACKUP_DIR/restore-failures.txt"
+  : > "$BACKUP_DIR/restore-errors.log"
   # shellcheck disable=SC1090
   source "$dir/repo-state.sh"
 
