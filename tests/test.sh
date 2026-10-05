@@ -53,10 +53,11 @@ test_self() {
   echo 'self: ok'
 }
 
-test_legacy() {
+test_legacy() (
+  set -Eeuo pipefail
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  trap 'rm -rf "$tmp"' EXIT
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
@@ -84,12 +85,12 @@ JSON_EOF
   [[ "$HAS_PULL_REQUESTS" == true ]]
   [[ "$LEGACY_REPO_BOOLEANS_REPAIRED" == true ]]
   echo 'legacy: ok'
-}
+)
 
-test_git() {
+test_git() (
   local tmp source mirror remote tree root
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  trap 'rm -rf "$tmp"' EXIT
   source="$tmp/source"
   mirror="$tmp/mirror.git"
   remote="$tmp/remote.git"
@@ -112,7 +113,7 @@ test_git() {
   [[ "$(git -C "$remote" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
   [[ "$(git -C "$remote" rev-list --parents -n1 "$root" | awk '{print NF-1}')" -eq 0 ]]
   echo 'git: ok'
-}
+)
 
 test_labels() (
   set -Eeuo pipefail
