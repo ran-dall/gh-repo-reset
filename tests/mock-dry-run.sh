@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/bin" "$TMP/state" "$TMP/source"
+/usr/bin/git -C "$TMP/source" init -b main >/dev/null
+printf 'one\n' >"$TMP/source/file.txt"
+/usr/bin/git -C "$TMP/source" add file.txt
+/usr/bin/git -C "$TMP/source" -c user.name=Tester -c user.email=test@example.com commit -m one >/dev/null
+printf 'two\n' >>"$TMP/source/file.txt"
+/usr/bin/git -C "$TMP/source" add file.txt
+/usr/bin/git -C "$TMP/source" -c user.name=Tester -c user.email=test@example.com commit -m two >/dev/null
+
+cat >"$TMP/bin/gh" <<'GH_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+args=" $* "
+[[ -n "${MOCK_GH_LOG:-}" ]] && printf '%s\n' "$*" >>"$MOCK_GH_LOG"
+
+# Streamed launcher bootstrap: serve pinned modules through mocked `gh api`.
+for x in "$@"; do
+  case "$x" in
+    repos/ran-dall/gh-repo-reset/contents/lib/*)
+      endpoint="${x%%\?*}"
+      module="${endpoint##*/}"
+      cat "$MOCK_MODULE_DIR/$module"
+      exit 0
+      ;;
+  esac
+done
+if [[ "$args" == *" auth status "* || "$args" == *" auth setup-git "* ]]; then exit 0; fi
+if [[ "$args" == *" repo view "* ]]; then printf 'owner/repo\n'; exit 0; fi
+if [[ "$args" == *" repo deploy-key list "* ]]; then exit 0; fi
+if [[ "$args" == *" variable list "* ]]; then exit 0; fi
+if [[ "$args" == *" secret list "* ]]; then
+  if [[ "$args" == *" --app codespaces "* && "${MOCK_CONFIG:-0}" == 1 ]]; then
+    [[ "$args" == *" --jq "* ]] && printf 'CODE_SECRET\n' || printf '[{"name":"CODE_SECRET","updatedAt":"2026-01-01T00:00:00Z"}]\n'
+  fi
+  exit 0
+fi
+if [[ "$args" == *" label list "* ]]; then exit 0; fi
+if [[ "$args" == *" repo clone "* ]]; then /usr/bin/git clone --mirror "$MOCK_SOURCE" "$4" >/dev/null 2>&1; exit 0; fi
+if [[ "$args" == *" repo delete "* || "$args" == *" repo create "* || "$args" == *" repo edit "* || "$args" == *" repo archive "* || "$args" == *" repo deploy-key add "* || "$args" == *" variable set "* || "$args" == *" secret set "* || "$args" == *" label delete "* || "$args" == *" label create "* ]]; then exit 0; fi
+if [[ "$args" == *" api "* ]]; then
+  endpoint=""; jqexpr=""; prev=""
+  for x in "$@"; do
+    if [[ "$prev" == "--jq" ]]; then jqexpr="$x"; prev=""; continue; fi
+    if [[ "$x" == "--jq" ]]; then prev="--jq"; continue; fi
+    case "$x" in repos/*|users/*|user|user/*|orgs/*) endpoint="$x" ;; esac
+  done
+  if [[ "$endpoint" == user ]]; then printf 'tester\n'; exit 0; fi
+  if [[ "$endpoint" == users/* ]]; then printf 'User\n'; exit 0; fi
+  if [[ "$endpoint" == user/installations\?per_page=100 && "${MOCK_CONFIG:-0}" == 1 && "$jqexpr" == *'.installations[]?'* ]]; then
+    printf '77\tselected\tdemo-app\n'; exit 0
+  fi
+  if [[ "$endpoint" == user/installations/77/repositories\?per_page=100 && "${MOCK_CONFIG:-0}" == 1 && "$jqexpr" == *'.repositories[]?.id'* ]]; then
+    printf '123\n'; exit 0
+  fi
+  if [[ "$endpoint" == repos/*/pages ]]; then exit 1; fi
+  case "$jqexpr" in
+    *'.id'*) printf '123\n' ;;
+    *'.description'*) printf 'demo\n' ;;
+    *'.homepage'*) printf '\n' ;;
+    *'.visibility'*) printf 'private\n' ;;
+    *'.default_branch'*) printf 'main\n' ;;
+    *'.has_issues'*) printf 'true\n' ;;
+    *'.has_projects'*) printf 'true\n' ;;
+    *'.has_wiki'*) printf 'false\n' ;;
+    *'.has_discussions'*) printf 'false\n' ;;
+    *'.allow_squash_merge'*) printf 'true\n' ;;
+    *'.allow_merge_commit'*) printf 'true\n' ;;
+    *'.allow_rebase_merge'*) printf 'true\n' ;;
+    *'.allow_auto_merge'*) printf 'false\n' ;;
+    *'.delete_branch_on_merge'*) printf 'false\n' ;;
+    *'.allow_update_branch'*) printf 'false\n' ;;
+    *'.allow_forking'*) printf 'true\n' ;;
+    *'.web_commit_signoff_required'*) printf 'false\n' ;;
+    *'.is_template'*) printf 'false\n' ;;
+    *'.archived'*) printf 'false\n' ;;
+    *'.fork // false'*) printf 'false\n' ;;
+    *'.stargazers_count'*) printf '0\n' ;;
+    *'.forks_count'*) printf '0\n' ;;
+    *'.security_and_analysis'*) printf 'unknown\n' ;;
+    *'.names[]?'*|*'.environments[].name'*|*'.[].name'*|*'.[].id'*|*'.policies[]?'*|*'@tsv'*|*'.[0].'*) : ;;
+    *'.total_count'*) printf '0\n' ;;
+    '') printf '{}\n' ;;
+    *) printf '{}\n' ;;
+  esac
+  exit 0
+fi
+printf 'unexpected mock gh invocation:' >&2; printf ' %q' "$@" >&2; printf '\n' >&2; exit 99
+GH_EOF
+chmod +x "$TMP/bin/gh"
+cat >"$TMP/bin/git" <<'GIT_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == clone && "${2:-}" == --mirror ]]; then exit 1; fi
+if [[ "${1:-}" == lfs ]]; then exit 1; fi
+exec /usr/bin/git "$@"
+GIT_EOF
+chmod +x "$TMP/bin/git"
+export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_MODULE_DIR="$PWD/lib"
+if [[ "${PIPE_MODE:-0}" == 1 ]]; then
+  cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" bash -s -- owner/repo --dry-run --no-open >"$TMP/out" 2>"$TMP/err"
+else
+  PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" ./gh-repo-reset owner/repo --dry-run --no-open >"$TMP/out" 2>"$TMP/err"
+fi
+grep -q 'Dry run complete' "$TMP/err"
+! grep -q 'Deleting owner/repo' "$TMP/err"
+BACKUP="$(find "$TMP/state/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
+[[ -d "$BACKUP/git.git" && -f "$BACKUP/initial-commit.txt" && -f "$BACKUP/repo-state.sh" ]]
+ROOT="$(cat "$BACKUP/initial-commit.txt")"
+[[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-list --parents -n1 "$ROOT" | awk '{print NF-1}')" -eq 0 ]]
+[[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse "$ROOT^{tree}")" == "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse 'refs/heads/main^{tree}')" ]]
+grep -q -- '--app codespaces' "$TMP/gh.log"
+echo 'mock dry-run: ok'

@@ -1,0 +1,7 @@
+[tasks.test]
+description = "Run the local mocked test suite"
+run = "./tests/test.sh"
+
+[tasks.check]
+description = "Run all local checks"
+depends = ["test"]

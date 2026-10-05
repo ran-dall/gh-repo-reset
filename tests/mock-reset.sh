@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/bin" "$TMP/state" "$TMP/source"
+/usr/bin/git -C "$TMP/source" init -b main >/dev/null
+printf 'first\n' >"$TMP/source/app.txt"
+/usr/bin/git -C "$TMP/source" add app.txt
+/usr/bin/git -C "$TMP/source" -c user.name=Tester -c user.email=test@example.com commit -m first >/dev/null
+printf 'second\n' >>"$TMP/source/app.txt"
+/usr/bin/git -C "$TMP/source" add app.txt
+/usr/bin/git -C "$TMP/source" -c user.name=Tester -c user.email=test@example.com commit -m second >/dev/null
+export MOCK_CONFIG=1
+# Reuse the dry-run mock gh by extracting the heredoc body from that test.
+awk '/^cat >"\$TMP\/bin\/gh" <<'\''GH_EOF'\''/{f=1;next}/^GH_EOF$/{if(f){exit}}f' tests/mock-dry-run.sh >"$TMP/bin/gh"
+chmod +x "$TMP/bin/gh"
+cat >"$TMP/bin/git" <<'GIT_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == clone && "${2:-}" == --mirror ]]; then exit 1; fi
+if [[ "${1:-}" == lfs ]]; then exit 1; fi
+args=" $* "
+if [[ "$args" == *" push "* ]]; then
+  [[ "$args" != *" --mirror "* ]] || { echo 'unexpected main mirror push' >&2; exit 90; }
+  repo=""; prev=""
+  for x in "$@"; do
+    if [[ "$prev" == -C ]]; then repo="$x"; prev=""; continue; fi
+    [[ "$x" == -C ]] && prev=-C
+  done
+  commit="$(/usr/bin/git -C "$repo" rev-parse refs/gh-repo-reset/initial)"
+  [[ "$(/usr/bin/git -C "$repo" rev-list --parents -n1 "$commit" | awk '{print NF-1}')" -eq 0 ]]
+  [[ "$(/usr/bin/git -C "$repo" log -1 --format=%s "$commit")" == 'Initial commit' ]]
+  [[ "$(/usr/bin/git -C "$repo" rev-parse "$commit^{tree}")" == "$(/usr/bin/git -C "$repo" rev-parse 'refs/heads/main^{tree}')" ]]
+  printf 'root-push-ok\n' >>"$MOCK_GIT_LOG"; exit 0
+fi
+exec /usr/bin/git "$@"
+GIT_EOF
+chmod +x "$TMP/bin/git"
+export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_GIT_LOG="$TMP/git.log"
+PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" MOCK_CONFIG=1 ./gh-repo-reset owner/repo --yes --allow-metadata-loss --no-open >"$TMP/out" 2>"$TMP/err"
+grep -q 'repo delete owner/repo --yes' "$TMP/gh.log"
+grep -q 'repo create owner/repo --private' "$TMP/gh.log"
+grep -q 'root-push-ok' "$TMP/git.log"
+grep -q 'actions/permissions' "$TMP/gh.log"
+grep -q 'properties/values' "$TMP/gh.log"
+grep -q 'user/installations/77/repositories/123' "$TMP/gh.log"
+grep -q 'Finished. Verify' "$TMP/err"
+echo 'mock reset: ok'

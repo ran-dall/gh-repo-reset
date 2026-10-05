@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+VERSION="v0.0.0-1"
+PROGRAM="gh-repo-reset"
+SOURCE_REPO="ran-dall/gh-repo-reset"
+SOURCE_REF="${GH_REPO_RESET_SOURCE_REF:-$VERSION}"
+
+MODULES=(
+  core.sh
+  snapshot.sh
+  git.sh
+  safety.sh
+  restore.sh
+  integrations.sh
+  followup.sh
+  main.sh
+)
+
+load_modules() {
+  local dir="$1" module
+  for module in "${MODULES[@]}"; do
+    [[ -f "$dir/$module" ]] || return 1
+  done
+  for module in "${MODULES[@]}"; do
+    # shellcheck source=/dev/null
+    source "$dir/$module"
+  done
+}
+
+find_local_modules() {
+  local script_path="${BASH_SOURCE[0]:-}" script_dir candidate
+
+  if [[ -n "${GH_REPO_RESET_LIB_DIR:-}" ]]; then
+    [[ -d "$GH_REPO_RESET_LIB_DIR" ]] || return 1
+    printf '%s\n' "$GH_REPO_RESET_LIB_DIR"
+    return 0
+  fi
+
+  [[ -n "$script_path" && -f "$script_path" ]] || return 1
+  script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+
+  # Repository checkout layout.
+  candidate="$script_dir/lib"
+  if [[ -d "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+fetch_remote_modules() {
+  command -v gh >/dev/null 2>&1 || {
+    printf '[%s] ERROR: gh is required to bootstrap modules during streamed execution.\n' "$PROGRAM" >&2
+    exit 1
+  }
+  gh auth status >/dev/null 2>&1 || {
+    printf '[%s] ERROR: GitHub CLI is not authenticated; run: gh auth login\n' "$PROGRAM" >&2
+    exit 1
+  }
+
+  local tmp module endpoint ref ok
+  local refs=("$SOURCE_REF")
+  # Before the pinned tag is published, a launcher streamed from main can still run.
+  # Explicit GH_REPO_RESET_SOURCE_REF disables this fallback.
+  if [[ -z "${GH_REPO_RESET_SOURCE_REF+x}" && "$SOURCE_REF" == "$VERSION" ]]; then
+    refs+=(main)
+  fi
+
+  tmp="$(mktemp -d)"
+  for ref in "${refs[@]}"; do
+    ok=1
+    rm -f "$tmp"/*.sh
+    for module in "${MODULES[@]}"; do
+      endpoint="repos/$SOURCE_REPO/contents/lib/$module?ref=$ref"
+      if ! gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$module" 2>/dev/null; then
+        ok=0
+        break
+      fi
+    done
+    if (( ok )); then
+      if [[ "$ref" != "$SOURCE_REF" ]]; then
+        printf '[%s] WARNING: %s is not published yet; bootstrapping modules from %s.\n' "$PROGRAM" "$SOURCE_REF" "$ref" >&2
+      fi
+      printf '%s\n' "$tmp"
+      return 0
+    fi
+  done
+
+  rm -rf "$tmp"
+  printf '[%s] ERROR: could not bootstrap modules from %s@%s\n' "$PROGRAM" "$SOURCE_REPO" "$SOURCE_REF" >&2
+  exit 1
+}
+
+MODULE_DIR=""
+BOOTSTRAP_DIR=""
+if MODULE_DIR="$(find_local_modules)" && [[ -n "$MODULE_DIR" ]]; then
+  :
+else
+  BOOTSTRAP_DIR="$(fetch_remote_modules)"
+  MODULE_DIR="$BOOTSTRAP_DIR"
+fi
+
+load_modules "$MODULE_DIR" || {
+  [[ -n "$BOOTSTRAP_DIR" ]] && rm -rf "$BOOTSTRAP_DIR"
+  printf '[%s] ERROR: incomplete module set in %s\n' "$PROGRAM" "$MODULE_DIR" >&2
+  exit 1
+}
+
+[[ -n "$BOOTSTRAP_DIR" ]] && rm -rf "$BOOTSTRAP_DIR"
+gh_repo_reset_main "$@"
