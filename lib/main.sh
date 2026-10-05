@@ -148,10 +148,14 @@ gh_repo_reset_main() {
 
   save_repo_state "$BACKUP_DIR"
 
-  # Independent reads are intentionally bounded: enough concurrency to hide
+  # The full Git mirror is often the longest single operation. Run it for the
+  # whole API snapshot window instead of making later API batches wait for it.
+  snapshot_git_and_metadata "$BACKUP_DIR" &
+  local git_snapshot_pid=$!
+
+  # Independent API reads are intentionally bounded: enough concurrency to hide
   # network latency without creating an aggressive burst against GitHub APIs.
   run_snapshot_jobs "$BACKUP_DIR" \
-    snapshot_git_and_metadata \
     snapshot_environments \
     snapshot_labels \
     snapshot_actions_settings \
@@ -168,6 +172,10 @@ gh_repo_reset_main() {
     snapshot_custom_properties \
     snapshot_pages \
     snapshot_webhooks
+
+  if ! wait "$git_snapshot_pid"; then
+    die "Git and metadata snapshot failed"
+  fi
 
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
