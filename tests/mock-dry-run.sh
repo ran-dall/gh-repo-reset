@@ -124,7 +124,7 @@ SECRET_SCANNING_DELEGATED_BYPASS='unknown'
 STATE_EOF
     exit 0
   fi
-  if [[ "$endpoint" == repos/*/pages ]]; then exit 1; fi
+  if [[ "$endpoint" == repos/*/pages ]]; then printf 'HTTP 404: Not Found\n' >&2; exit 1; fi
   case "$jqexpr" in
     *'.id'*) printf '123\n' ;;
     *'.description'*) printf 'demo\n' ;;
