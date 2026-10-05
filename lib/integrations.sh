@@ -117,12 +117,13 @@ restore_pages ()
 
 restore_webhooks () 
 { 
-    local dir="$1" hdir secret_file new_id id_file;
+    local dir="$1" hdir secret_file new_id id_file key;
     shopt -s nullglob;
     for hdir in "$dir"/webhooks/*;
     do
         [[ -f "$hdir/state.sh" && -s "$hdir/create.json" ]] || continue;
         source "$hdir/state.sh";
+        key="webhook:$OLD_HOOK_ID";
         secret_file="${SECRETS_DIR:+$SECRETS_DIR/webhooks/$OLD_HOOK_ID.secret}";
         if [[ "${HOOK_SECRET_STATUS:-unknown}" != unsigned && ( -z "$secret_file" || ! -f "$secret_file" ) ]]; then
             warn "skipping webhook $OLD_HOOK_ID: signing secret cannot be read back; supply $SECRETS_DIR/webhooks/$OLD_HOOK_ID.secret";
@@ -131,15 +132,28 @@ restore_webhooks ()
         id_file="$hdir/restored-id";
         if [[ -s "$id_file" ]]; then
             IFS= read -r new_id < "$id_file" || true;
+            mark_restore_step_done "$key";
+            clear_restore_step_pending "$key";
             vlog "webhook $OLD_HOOK_ID already created as $new_id; skipping create.";
+        elif restore_step_done "$key"; then
+            record_restore_failure "webhook $OLD_HOOK_ID (completed journal entry missing restored ID)";
+            warn "webhook $OLD_HOOK_ID was marked restored but its new ID is missing; refusing to create a possible duplicate";
+            continue;
+        elif restore_step_pending "$key"; then
+            record_restore_failure "webhook $OLD_HOOK_ID (unfinished prior attempt)";
+            warn "webhook $OLD_HOOK_ID has an unfinished prior create attempt; refusing to create a possible duplicate";
+            continue;
         else
+            mark_restore_step_pending "$key";
             if ! new_id="$(api --method POST "repos/$REPO/hooks" --input "$hdir/create.json" --jq '.id' 2> /dev/null)"; then
+                clear_restore_step_pending "$key";
                 record_restore_failure "webhook $OLD_HOOK_ID";
                 warn "restoring webhook $OLD_HOOK_ID failed";
                 continue;
             fi;
             printf '%s\n' "$new_id" > "$id_file";
-            mark_restore_step_done "webhook:$OLD_HOOK_ID";
+            mark_restore_step_done "$key";
+            clear_restore_step_pending "$key";
         fi;
         if [[ -n "$secret_file" && -f "$secret_file" ]]; then
             best_effort "restoring signing secret for webhook $OLD_HOOK_ID" api --method PATCH "repos/$REPO/hooks/$new_id/config" -F "secret=@$secret_file" > /dev/null;
