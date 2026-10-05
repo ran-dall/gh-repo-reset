@@ -28,7 +28,7 @@ test_syntax() {
     declare -F deploy_key_attached_to_target >/dev/null
   )
 
-  (( $(wc -l < ./gh-repo-reset) < 180 ))
+  (( $(wc -l < ./gh-repo-reset) < 220 ))
   [[ ! -e Makefile ]]
   [[ -f mise.toml ]]
   [[ -f gh-repo-reset.usage.kdl ]]
@@ -36,6 +36,10 @@ test_syntax() {
   grep -q '^gh = "2.101.0"$' mise.toml
   grep -q '^usage = "6.12.0"$' mise.toml
   ! grep -q '// true' lib/snapshot.sh
+  ! grep -q 'gh variable get' lib/snapshot.sh
+  ! grep -q 'repos/\$REPO/labels/\$(urlencode' lib/snapshot.sh
+  grep -q 'run_snapshot_jobs "\$BACKUP_DIR"' lib/main.sh
+  grep -q 'GH_REPO_RESET_JOBS' gh-repo-reset
   echo 'syntax: ok'
 }
 
