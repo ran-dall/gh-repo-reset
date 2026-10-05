@@ -5,49 +5,60 @@ save_repo_state ()
     local dir="$1" state owner;
     state="$dir/repo-state.sh";
     : > "$state";
-    write_assignment "$state" SNAPSHOT_SCHEMA_VERSION 2;
+    write_assignment "$state" SNAPSHOT_SCHEMA_VERSION 3;
     write_assignment "$state" REPO "$REPO";
     owner="${REPO%%/*}";
     write_assignment "$state" OWNER "$owner";
-    write_assignment "$state" OWNER_TYPE "$(api "users/$owner" --jq '.type // "User"' 2> /dev/null || printf User)";
-    write_assignment "$state" REPO_ID "$(repo_field '.id')";
-    write_assignment "$state" DESCRIPTION "$(repo_field '.description // ""')";
-    write_assignment "$state" HOMEPAGE "$(repo_field '.homepage // ""')";
-    write_assignment "$state" VISIBILITY "$(repo_field '.visibility // (if .private then "private" else "public" end)')";
-    write_assignment "$state" DEFAULT_BRANCH "$(repo_field '.default_branch // "main"')";
-    write_assignment "$state" HAS_ISSUES "$(repo_field '.has_issues // false')";
-    write_assignment "$state" HAS_PROJECTS "$(repo_field '.has_projects // false')";
-    write_assignment "$state" HAS_WIKI "$(repo_field '.has_wiki // false')";
-    write_assignment "$state" HAS_DISCUSSIONS "$(repo_field '.has_discussions // false')";
-    write_assignment "$state" ALLOW_SQUASH "$(repo_field 'if .allow_squash_merge == null then true else .allow_squash_merge end')";
-    write_assignment "$state" ALLOW_MERGE "$(repo_field 'if .allow_merge_commit == null then true else .allow_merge_commit end')";
-    write_assignment "$state" ALLOW_REBASE "$(repo_field 'if .allow_rebase_merge == null then true else .allow_rebase_merge end')";
-    write_assignment "$state" ALLOW_AUTO_MERGE "$(repo_field '.allow_auto_merge // false')";
-    write_assignment "$state" DELETE_BRANCH_ON_MERGE "$(repo_field '.delete_branch_on_merge // false')";
-    write_assignment "$state" ALLOW_UPDATE_BRANCH "$(repo_field '.allow_update_branch // false')";
-    write_assignment "$state" ALLOW_FORKING "$(repo_field 'if .allow_forking == null then true else .allow_forking end')";
-    write_assignment "$state" HAS_DOWNLOADS "$(repo_field 'if .has_downloads == null then true else .has_downloads end')";
-    write_assignment "$state" HAS_PULL_REQUESTS "$(repo_field 'if .has_pull_requests == null then true else .has_pull_requests end')";
-    write_assignment "$state" PULL_REQUEST_CREATION_POLICY "$(repo_field '.pull_request_creation_policy // ""')";
-    write_assignment "$state" SQUASH_MERGE_COMMIT_TITLE "$(repo_field '.squash_merge_commit_title // ""')";
-    write_assignment "$state" SQUASH_MERGE_COMMIT_MESSAGE "$(repo_field '.squash_merge_commit_message // ""')";
-    write_assignment "$state" MERGE_COMMIT_TITLE "$(repo_field '.merge_commit_title // ""')";
-    write_assignment "$state" MERGE_COMMIT_MESSAGE "$(repo_field '.merge_commit_message // ""')";
-    write_assignment "$state" WEB_COMMIT_SIGNOFF "$(repo_field '.web_commit_signoff_required // false')";
-    write_assignment "$state" IS_TEMPLATE "$(repo_field '.is_template // false')";
-    write_assignment "$state" ARCHIVED "$(repo_field '.archived // false')";
-    write_assignment "$state" IS_FORK "$(repo_field '.fork // false')";
-    write_assignment "$state" STARGAZERS "$(repo_field '.stargazers_count // 0')";
-    write_assignment "$state" FORKS "$(repo_field '.forks_count // 0')";
-    write_assignment "$state" ADVANCED_SECURITY "$(repo_field '.security_and_analysis.advanced_security.status // "unknown"')";
-    write_assignment "$state" CODE_SECURITY "$(repo_field '.security_and_analysis.code_security.status // "unknown"')";
-    write_assignment "$state" SECRET_SCANNING "$(repo_field '.security_and_analysis.secret_scanning.status // "unknown"')";
-    write_assignment "$state" PUSH_PROTECTION "$(repo_field '.security_and_analysis.secret_scanning_push_protection.status // "unknown"')";
-    write_assignment "$state" SECRET_SCANNING_AI "$(repo_field '.security_and_analysis.secret_scanning_ai_detection.status // "unknown"')";
-    write_assignment "$state" SECRET_SCANNING_NON_PROVIDER "$(repo_field '.security_and_analysis.secret_scanning_non_provider_patterns.status // "unknown"')";
-    write_assignment "$state" SECRET_SCANNING_DELEGATED_DISMISSAL "$(repo_field '.security_and_analysis.secret_scanning_delegated_alert_dismissal.status // "unknown"')";
-    write_assignment "$state" SECRET_SCANNING_DELEGATED_BYPASS "$(repo_field '.security_and_analysis.secret_scanning_delegated_bypass.status // "unknown"')";
+
+    # Keep a raw copy for audit/recovery, but extract all top-level settings in
+    # one additional request instead of issuing one request per field.
+    api "repos/$REPO" > "$dir/repository.json";
+    api "repos/$REPO" --jq '
+      def assign($k; $v): "\($k)=\((($v | tostring) | @sh))";
+      [
+        assign("OWNER_TYPE"; (.owner.type // "User")),
+        assign("REPO_ID"; .id),
+        assign("DESCRIPTION"; (.description // "")),
+        assign("HOMEPAGE"; (.homepage // "")),
+        assign("VISIBILITY"; (.visibility // (if .private then "private" else "public" end))),
+        assign("DEFAULT_BRANCH"; (.default_branch // "main")),
+        assign("HAS_ISSUES"; (.has_issues // false)),
+        assign("HAS_PROJECTS"; (.has_projects // false)),
+        assign("HAS_WIKI"; (.has_wiki // false)),
+        assign("HAS_DISCUSSIONS"; (.has_discussions // false)),
+        assign("ALLOW_SQUASH"; (if .allow_squash_merge == null then true else .allow_squash_merge end)),
+        assign("ALLOW_MERGE"; (if .allow_merge_commit == null then true else .allow_merge_commit end)),
+        assign("ALLOW_REBASE"; (if .allow_rebase_merge == null then true else .allow_rebase_merge end)),
+        assign("ALLOW_AUTO_MERGE"; (.allow_auto_merge // false)),
+        assign("DELETE_BRANCH_ON_MERGE"; (.delete_branch_on_merge // false)),
+        assign("ALLOW_UPDATE_BRANCH"; (.allow_update_branch // false)),
+        assign("ALLOW_FORKING"; (if .allow_forking == null then true else .allow_forking end)),
+        assign("HAS_DOWNLOADS"; (if .has_downloads == null then true else .has_downloads end)),
+        assign("HAS_PULL_REQUESTS"; (if .has_pull_requests == null then true else .has_pull_requests end)),
+        assign("PULL_REQUEST_CREATION_POLICY"; (.pull_request_creation_policy // "")),
+        assign("SQUASH_MERGE_COMMIT_TITLE"; (.squash_merge_commit_title // "")),
+        assign("SQUASH_MERGE_COMMIT_MESSAGE"; (.squash_merge_commit_message // "")),
+        assign("MERGE_COMMIT_TITLE"; (.merge_commit_title // "")),
+        assign("MERGE_COMMIT_MESSAGE"; (.merge_commit_message // "")),
+        assign("WEB_COMMIT_SIGNOFF"; (.web_commit_signoff_required // false)),
+        assign("IS_TEMPLATE"; (.is_template // false)),
+        assign("ARCHIVED"; (.archived // false)),
+        assign("IS_FORK"; (.fork // false)),
+        assign("STARGAZERS"; (.stargazers_count // 0)),
+        assign("FORKS"; (.forks_count // 0)),
+        assign("ADVANCED_SECURITY"; (.security_and_analysis.advanced_security.status // "unknown")),
+        assign("CODE_SECURITY"; (.security_and_analysis.code_security.status // "unknown")),
+        assign("SECRET_SCANNING"; (.security_and_analysis.secret_scanning.status // "unknown")),
+        assign("PUSH_PROTECTION"; (.security_and_analysis.secret_scanning_push_protection.status // "unknown")),
+        assign("SECRET_SCANNING_AI"; (.security_and_analysis.secret_scanning_ai_detection.status // "unknown")),
+        assign("SECRET_SCANNING_NON_PROVIDER"; (.security_and_analysis.secret_scanning_non_provider_patterns.status // "unknown")),
+        assign("SECRET_SCANNING_DELEGATED_DISMISSAL"; (.security_and_analysis.secret_scanning_delegated_alert_dismissal.status // "unknown")),
+        assign("SECRET_SCANNING_DELEGATED_BYPASS"; (.security_and_analysis.secret_scanning_delegated_bypass.status // "unknown"))
+      ] | .[]
+    ' >> "$state";
+
     snapshot_json "$dir/secret-scanning-delegated-bypass-options.json" "repos/$REPO" 'if .security_and_analysis.secret_scanning_delegated_bypass_options == null then empty else {security_and_analysis:{secret_scanning_delegated_bypass_options:.security_and_analysis.secret_scanning_delegated_bypass_options}} end' || :;
+
     if api "repos/$REPO/vulnerability-alerts" > /dev/null 2>&1; then
         write_assignment "$state" VULNERABILITY_ALERTS enabled;
     else
@@ -64,53 +75,66 @@ save_repo_state ()
     else
         write_assignment "$state" IMMUTABLE_RELEASES unknown;
     fi;
-    api "repos/$REPO" > "$dir/repository.json";
     api "repos/$REPO/topics" --jq '.names[]?' > "$dir/topics.txt" || :
 }
 
 snapshot_labels () 
 { 
-    local dir="$1" name idx=0 ldir;
+    local dir="$1" raw_name raw_color raw_description name color description idx=0 ldir;
     mkdir -p "$dir/labels";
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
+    while IFS=$'\t' read -r raw_name raw_color raw_description; do
+        [[ -n "$raw_name" ]] || continue;
+        name="$(tsv_decode "$raw_name")";
+        color="$(tsv_decode "$raw_color")";
+        description="$(tsv_decode "$raw_description")";
         idx=$((idx+1));
         ldir="$dir/labels/$idx";
         mkdir -p "$ldir";
         : > "$ldir/state.sh";
         write_assignment "$ldir/state.sh" LABEL_NAME "$name";
-        write_assignment "$ldir/state.sh" LABEL_COLOR "$(api "repos/$REPO/labels/$(urlencode "$name")" --jq '.color // "ededed"' 2> /dev/null || printf ededed)";
-        write_assignment "$ldir/state.sh" LABEL_DESCRIPTION "$(api "repos/$REPO/labels/$(urlencode "$name")" --jq '.description // ""' 2> /dev/null || true)";
-    done < <(api --paginate "repos/$REPO/labels?per_page=100" --jq '.[].name' 2> /dev/null || true)
+        write_assignment "$ldir/state.sh" LABEL_COLOR "${color:-ededed}";
+        write_assignment "$ldir/state.sh" LABEL_DESCRIPTION "$description";
+    done < <(
+        gh label list -R "$REPO" --limit 1000 --json name,color,description \
+          --jq '.[] | [.name, .color, (.description // "")] | @tsv' 2> /dev/null || true
+    )
 }
 
 snapshot_deploy_keys () 
 { 
-    local dir="$1" id n=0 keydir title readonly key;
+    local dir="$1" raw_title raw_key raw_readonly title key readonly n=0 keydir;
     mkdir -p "$dir/deploy-keys";
-    while IFS= read -r id; do
-        [[ -n "$id" ]] || continue;
+    while IFS=$'\t' read -r raw_title raw_key raw_readonly; do
+        [[ -n "$raw_key" ]] || continue;
+        title="$(tsv_decode "$raw_title")";
+        key="$(tsv_decode "$raw_key")";
+        readonly="$(tsv_decode "$raw_readonly")";
         n=$((n+1));
         keydir="$dir/deploy-keys/$n";
         mkdir -p "$keydir";
-        title="$(api "repos/$REPO/keys/$id" --jq '.title // ""')";
-        readonly="$(api "repos/$REPO/keys/$id" --jq 'if .read_only == null then true else .read_only end')";
-        key="$(api "repos/$REPO/keys/$id" --jq '.key // ""')";
         : > "$keydir/state.sh";
         write_assignment "$keydir/state.sh" TITLE "$title";
         write_assignment "$keydir/state.sh" READ_ONLY "$readonly";
         printf '%s\n' "$key" > "$keydir/key.pub";
-    done < <(gh repo deploy-key list -R "$REPO" --json id --jq '.[].id' 2> /dev/null || true)
+    done < <(
+        gh repo deploy-key list -R "$REPO" --json title,key,readOnly \
+          --jq '.[] | [.title, .key, (.readOnly|tostring)] | @tsv' 2> /dev/null || true
+    )
 }
 
 snapshot_variables () 
 { 
-    local dir="$1" name;
+    local dir="$1" raw_name raw_value name value;
     mkdir -p "$dir/variables/repository";
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
-        gh variable get "$name" -R "$REPO" --json value --jq '.value' > "$dir/variables/repository/$name" || true;
-    done < <(gh variable list -R "$REPO" --json name --jq '.[].name' 2> /dev/null || true)
+    while IFS=$'\t' read -r raw_name raw_value; do
+        [[ -n "$raw_name" ]] || continue;
+        name="$(tsv_decode "$raw_name")";
+        value="$(tsv_decode "$raw_value")";
+        printf '%s' "$value" > "$dir/variables/repository/$name";
+    done < <(
+        gh variable list -R "$REPO" --json name,value \
+          --jq '.[] | [.name, .value] | @tsv' 2> /dev/null || true
+    )
 }
 
 snapshot_secrets () 
@@ -141,10 +165,20 @@ snapshot_environments ()
         api "repos/$REPO/environments/$encoded" > "$envdir/environment.json" 2> /dev/null || :;
         api --paginate "repos/$REPO/environments/$encoded/deployment_protection_rules?per_page=100" --jq '.custom_deployment_protection_rules[]? | [.app.id, (.app.slug // "")] | @tsv' > "$envdir/custom-deployment-protection-rules.tsv" 2> /dev/null || :;
         snapshot_json "$envdir/deployment-branch-policies.json" "repos/$REPO/environments/$encoded/deployment-branch-policies?per_page=100" '{branch_policies:(.branch_policies // [] | map({name,type:(.type // "branch")}))}' || :;
-        while IFS= read -r name; do
-            [[ -n "$name" ]] || continue;
-            gh variable get "$name" -R "$REPO" --env "$env" --json value --jq '.value' > "$envdir/variables/$name" || true;
-        done < <(gh variable list -R "$REPO" --env "$env" --json name --jq '.[].name' 2> /dev/null || true);
+        local raw_name raw_value value;
+        while IFS=
+        gh secret list -R "$REPO" --env "$env" --app actions --json name,updatedAt > "$envdir/actions-secrets.json" 2> /dev/null || :;
+        gh secret list -R "$REPO" --env "$env" --app actions --json name --jq '.[].name' > "$envdir/actions-secret-names.txt" 2> /dev/null || :;
+    done < <(api --paginate "repos/$REPO/environments?per_page=100" --jq '.environments[].name' 2> /dev/null || true)
+}\t' read -r raw_name raw_value; do
+            [[ -n "$raw_name" ]] || continue;
+            name="$(tsv_decode "$raw_name")";
+            value="$(tsv_decode "$raw_value")";
+            printf '%s' "$value" > "$envdir/variables/$name";
+        done < <(
+            gh variable list -R "$REPO" --env "$env" --json name,value \
+              --jq '.[] | [.name, .value] | @tsv' 2> /dev/null || true
+        );
         gh secret list -R "$REPO" --env "$env" --app actions --json name,updatedAt > "$envdir/actions-secrets.json" 2> /dev/null || :;
         gh secret list -R "$REPO" --env "$env" --app actions --json name --jq '.[].name' > "$envdir/actions-secret-names.txt" 2> /dev/null || :;
     done < <(api --paginate "repos/$REPO/environments?per_page=100" --jq '.environments[].name' 2> /dev/null || true)
