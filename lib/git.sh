@@ -27,18 +27,22 @@ snapshot_git_and_metadata ()
             warn "Git LFS is used but git-lfs is not installed; LFS objects are NOT backed up";
         fi;
     fi;
-    if (( VERBOSE )); then
-        if ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git"; then
-            vwarn "wiki mirror is unavailable; continuing without it";
+    if [[ "${HAS_WIKI:-false}" == true ]]; then
+        if (( VERBOSE )); then
+            if ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git"; then
+                vwarn "wiki mirror is unavailable; continuing without it";
+                rm -rf "$dir/wiki.git";
+            fi;
+        elif ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git" > /dev/null 2>&1; then
             rm -rf "$dir/wiki.git";
         fi;
-    elif ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git" > /dev/null 2>&1; then
-        rm -rf "$dir/wiki.git";
     fi;
     snapshot_api "$dir/issues.json" "repos/$REPO/issues?state=all&per_page=100";
     snapshot_api "$dir/pulls.json" "repos/$REPO/pulls?state=all&per_page=100";
     snapshot_api "$dir/releases.json" "repos/$REPO/releases?per_page=100";
-    snapshot_api "$dir/discussions.json" "repos/$REPO/discussions?per_page=100"
+    if [[ "${HAS_DISCUSSIONS:-false}" == true ]]; then
+        snapshot_api "$dir/discussions.json" "repos/$REPO/discussions?per_page=100";
+    fi
 }
 
 prepare_initial_commit () 
