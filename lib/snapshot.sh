@@ -172,7 +172,7 @@ snapshot_environments ()
         write_assignment "$envdir/state.sh" ENV_NAME "$env";
         write_assignment "$envdir/state.sh" ENV_KEY "$encoded";
 
-        snapshot_json "$envdir/environment-restore.json" "repos/$REPO/environments/$encoded" '{wait_timer:([.protection_rules[]? | select(.type=="wait_timer") | .wait_timer][0] // 0),prevent_self_review:([.protection_rules[]? | select(.type=="required_reviewers") | .prevent_self_review][0] // false),reviewers:([.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]? | {type:.type,id:.reviewer.id}]),deployment_branch_policy:(.deployment_branch_policy // null)}' || :;
+        snapshot_json "$envdir/environment-restore.json" "repos/$REPO/environments/$encoded" '(.protection_rules // []) as $rules | ([$rules[]? | select(.type=="wait_timer")][0]) as $wait | ([$rules[]? | select(.type=="required_reviewers")][0]) as $review | ({deployment_branch_policy:(.deployment_branch_policy // null)} + (if $wait == null then {} else {wait_timer:($wait.wait_timer // 0)} end) + (if $review == null then {} else {prevent_self_review:($review.prevent_self_review // false),reviewers:([$review.reviewers[]? | {type:.type,id:.reviewer.id}])} end))' || :;
         api "repos/$REPO/environments/$encoded" > "$envdir/environment.json" 2> /dev/null || :;
         api --paginate "repos/$REPO/environments/$encoded/deployment_protection_rules?per_page=100" --jq '.custom_deployment_protection_rules[]? | [.app.id, (.app.slug // "")] | @tsv' > "$envdir/custom-deployment-protection-rules.tsv" 2> /dev/null || :;
         api "repos/$REPO/environments/$encoded/deployment-branch-policies?per_page=100" \
