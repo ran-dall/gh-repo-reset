@@ -17,7 +17,27 @@ set -Eeuo pipefail
 args=" $* "
 [[ -n "${MOCK_GH_LOG:-}" ]] && printf '%s\n' "$*" >>"$MOCK_GH_LOG"
 
-# Streamed launcher bootstrap: serve pinned modules through mocked `gh api`.
+# Streamed launcher bootstrap: serve the GraphQL lib-tree fast path.
+if [[ "$args" == *" api graphql "* ]]; then
+  for module in core.sh snapshot.sh git.sh report.sh safety.sh restore.sh integrations.sh followup.sh main.sh; do
+    printf '%s\tfalse\t' "$module"
+    awk '
+      BEGIN { first=1 }
+      {
+        gsub(/\\/, "\\\\")
+        gsub(/\t/, "\\t")
+        if (!first) printf "\\n"
+        printf "%s", $0
+        first=0
+      }
+      END { printf "\\n" }
+    ' "$MOCK_MODULE_DIR/$module"
+    printf '\n'
+  done
+  exit 0
+fi
+
+# REST compatibility fallback.
 for x in "$@"; do
   case "$x" in
     repos/ran-dall/gh-repo-reset/contents/lib/*)
