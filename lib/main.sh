@@ -190,8 +190,23 @@ gh_repo_reset_main() {
     return 5
   fi
 
-  if grep -Evq 
-
+  if grep -Eq '[[:space:]]failed$' "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+    warn "Snapshot is incomplete; refusing to continue."
+    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+      while IFS= read -r snapshot_failure; do
+        [[ -n "$snapshot_failure" ]] || continue
+        warn "Snapshot failure: $snapshot_failure"
+      done < "$BACKUP_DIR/snapshot-failures.txt"
+    else
+      warn "Failed snapshot entries are recorded in $BACKUP_DIR/snapshot-status.tsv"
+    fi
+    if [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
+      warn "Snapshot API errors:"
+      sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
+    fi
+    warn "Snapshot kept at $BACKUP_DIR"
+    return 5
+  fi
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
 
