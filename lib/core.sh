@@ -347,6 +347,15 @@ snapshot_api ()
     snapshot_capture "$outfile" "$endpoint" api --paginate --slurp "$endpoint" "$@"
 }
 
+snapshot_api_optional_404 ()
+{
+    local outfile="$1" endpoint="$2" rc=0;
+    shift 2;
+    snapshot_capture_optional_404 "$outfile" "$endpoint" api --paginate --slurp "$endpoint" "$@" || rc=$?;
+    (( rc == 0 || rc == 2 )) || return 0;
+    return 0
+}
+
 snapshot_json () 
 { 
     local outfile="$1" endpoint="$2" jqexpr="$3";
