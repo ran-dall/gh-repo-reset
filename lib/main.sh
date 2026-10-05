@@ -105,8 +105,11 @@ gh_repo_reset_main() {
     fi
     api "repos/$REPO" >/dev/null || die "cannot read recreated $REPO with current gh authentication"
     BACKUP_DIR="$RESUME_FROM"
+    repair_legacy_repo_booleans "$BACKUP_DIR"
+    # shellcheck disable=SC1090
+    source "$BACKUP_DIR/repo-state.sh"
     log "Resuming reset: $REPO"
-    [[ -f "$BACKUP_DIR/restore-plan.tsv" ]] || build_restore_plan "$BACKUP_DIR"
+    build_restore_plan "$BACKUP_DIR"
     print_detected_summary "$BACKUP_DIR"
     print_restore_plan_summary "$BACKUP_DIR"
     (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
