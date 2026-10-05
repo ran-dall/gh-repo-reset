@@ -32,6 +32,39 @@ test_self() {
   ./gh-repo-reset __usage_spec__ | grep -q '^bin "gh-repo-reset"
 }
 
+test_legacy() {
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  BACKUP_DIR="$tmp"
+  source ./lib/core.sh
+  source ./lib/report.sh
+
+  cat > "$tmp/repo-state.sh" <<'STATE_EOF'
+ALLOW_SQUASH=true
+ALLOW_MERGE=true
+ALLOW_REBASE=true
+ALLOW_FORKING=true
+HAS_DOWNLOADS=true
+HAS_PULL_REQUESTS=true
+STATE_EOF
+  cat > "$tmp/repository.json" <<'JSON_EOF'
+{"allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_forking":false,"has_downloads":false,"has_pull_requests":true}
+JSON_EOF
+
+  repair_legacy_repo_booleans "$tmp"
+  # shellcheck disable=SC1090
+  source "$tmp/repo-state.sh"
+  [[ "$ALLOW_FORKING" == false ]]
+  [[ "$HAS_DOWNLOADS" == false ]]
+  [[ "$HAS_PULL_REQUESTS" == true ]]
+  [[ "$LEGACY_REPO_BOOLEANS_REPAIRED" == true ]]
+  echo 'legacy: ok'
+}
+
 test_git() {
   local tmp source mirror remote tree root
   tmp="$(mktemp -d)"
@@ -82,6 +115,7 @@ run_suite() {
   case "$1" in
     syntax) test_syntax ;;
     self) test_self ;;
+    legacy) test_legacy ;;
     git) test_git ;;
     dry-run) test_dry_run ;;
     org) test_org ;;
@@ -96,16 +130,16 @@ run_suite() {
 
 case "$suite" in
   all)
-    for name in syntax self git dry-run org reset pipe; do
+    for name in syntax self legacy git dry-run org reset pipe; do
       run_suite "$name"
     done
     echo 'tests: ok'
     ;;
-  syntax|self|git|dry-run|org|reset|pipe)
+  syntax|self|legacy|git|dry-run|org|reset|pipe)
     run_suite "$suite"
     ;;
   *)
-    printf 'usage: %s [all|syntax|self|git|dry-run|org|reset|pipe]\n' "$0" >&2
+    printf 'usage: %s [all|syntax|self|legacy|git|dry-run|org|reset|pipe]\n' "$0" >&2
     exit 2
     ;;
 esac
