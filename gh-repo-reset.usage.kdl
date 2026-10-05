@@ -1,0 +1,22 @@
+min_usage_version "6.12.0"
+name "gh-repo-reset"
+bin "gh-repo-reset"
+version "v0.0.0-1"
+about "Recreate a GitHub repository as one fresh initial commit while restoring readable repository configuration."
+license "MIT"
+repository "https://github.com/ran-dall/gh-repo-reset"
+
+disable_version_flag #true
+flag "--version" action="version" help="Print the pinned gh-repo-reset version"
+flag "--yes" help="Skip typed OWNER/REPO confirmation"
+flag "--allow-metadata-loss" help="Accept GitHub-only history or credential state that cannot be round-tripped"
+flag "--backup-dir <dir>" help="Override the snapshot or safety-backup root directory"
+flag "--secrets-dir <dir>" help="Read explicitly supplied local secret values from this directory"
+flag "--no-open" help="Do not open manual follow-up pages after a real reset"
+flag "--dry-run" help="Snapshot and report only; do not delete or recreate anything"
+flag "--self-test" help="Run the internal local self-test"
+
+arg "[repo]" help="Target repository in OWNER/REPO form; inferred with gh repo view when omitted"
+
+example "gh-repo-reset OWNER/REPO --dry-run" header="Preview" help="Snapshot the repository and report what a destructive reset would do"
+example "gh-repo-reset OWNER/REPO --allow-metadata-loss" header="Reset" help="Perform the reset after explicitly accepting non-round-trippable GitHub state"

@@ -75,7 +75,9 @@ The implementation is split by the reset lifecycle so the functional core stays 
 
 ```text
 gh-repo-reset                  # small launcher / remote bootstrap
-mise.toml                      # local development tasks (mise by jdx)
+gh-repo-reset.usage.kdl        # declarative CLI contract for usage tooling
+mise.toml                      # pinned local tools + task graph
+mise-tasks/test                # usage-powered selectable test task
 lib/
 ├── core.sh                    # shared gh/API/logging/serialization helpers
 ├── snapshot.sh                # capture readable GitHub repository state
@@ -122,12 +124,23 @@ Piped execution still reads destructive confirmation from `/dev/tty`.
 
 ## Local development
 
-Cloning the repository is only needed when developing or testing the tool locally. Local project tasks use [mise](https://mise.jdx.dev/) by JDX; the checkout runs in place and has no local installation workflow.
+Cloning the repository is only needed when developing or testing the tool locally. Local development uses [mise](https://mise.jdx.dev/) by JDX with pinned `gh` and `usage` versions; the checkout runs in place and has no local installation workflow.
 
-Run the mocked test suite:
+The committed `gh-repo-reset.usage.kdl` file is the declarative CLI contract. It is used for local validation/tooling only, so remote users do **not** need `usage` installed. The launcher can emit that contract with `gh-repo-reset __usage_spec__`.
+
+Mise's test task uses `#USAGE` arguments, so the available suites get generated help and shell completion:
 
 ```bash
+mise run test --help
+mise run test --suite org
+mise run test --suite pipe
 mise run test
+```
+
+Run the full local contract + test pass with:
+
+```bash
+mise run check
 ```
 
 You can also execute the checkout directly while developing:

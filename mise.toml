@@ -1,7 +1,15 @@
-[tasks.test]
-description = "Run the local mocked test suite"
-run = "./tests/test.sh"
+[tools]
+gh = "2.101.0"
+usage = "6.12.0"
 
 [tasks.check]
-description = "Run all local checks"
-depends = ["test"]
+description = "Run the CLI contract check and all tests"
+depends = ["cli:lint", "test"]
+
+[tasks."cli:lint"]
+description = "Validate the gh-repo-reset usage contract"
+run = "usage lint gh-repo-reset.usage.kdl"
+
+[tasks."cli:spec"]
+description = "Print the CLI usage contract"
+run = "./gh-repo-reset __usage_spec__"

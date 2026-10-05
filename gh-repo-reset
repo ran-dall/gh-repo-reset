@@ -6,6 +6,7 @@ VERSION="v0.0.0-1"
 PROGRAM="gh-repo-reset"
 SOURCE_REPO="ran-dall/gh-repo-reset"
 SOURCE_REF="${GH_REPO_RESET_SOURCE_REF:-$VERSION}"
+SPEC_FILE="gh-repo-reset.usage.kdl"
 
 MODULES=(
   core.sh
@@ -17,6 +18,50 @@ MODULES=(
   followup.sh
   main.sh
 )
+
+source_refs() {
+  printf '%s\n' "$SOURCE_REF"
+  if [[ -z "${GH_REPO_RESET_SOURCE_REF+x}" && "$SOURCE_REF" == "$VERSION" ]]; then
+    printf '%s\n' main
+  fi
+}
+
+print_usage_spec() {
+  local script_path="${BASH_SOURCE[0]:-}" script_dir candidate ref endpoint
+
+  if [[ -n "$script_path" && -f "$script_path" ]]; then
+    script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+    candidate="$script_dir/$SPEC_FILE"
+    if [[ -f "$candidate" ]]; then
+      cat "$candidate"
+      return 0
+    fi
+  fi
+
+  command -v gh >/dev/null 2>&1 || {
+    printf '[%s] ERROR: gh is required to fetch %s during streamed execution.\n' "$PROGRAM" "$SPEC_FILE" >&2
+    return 1
+  }
+  gh auth status >/dev/null 2>&1 || {
+    printf '[%s] ERROR: GitHub CLI is not authenticated; run: gh auth login\n' "$PROGRAM" >&2
+    return 1
+  }
+
+  while IFS= read -r ref; do
+    endpoint="repos/$SOURCE_REPO/contents/$SPEC_FILE?ref=$ref"
+    if gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' 2>/dev/null; then
+      return 0
+    fi
+  done < <(source_refs)
+
+  printf '[%s] ERROR: could not fetch %s from %s@%s\n' "$PROGRAM" "$SPEC_FILE" "$SOURCE_REPO" "$SOURCE_REF" >&2
+  return 1
+}
+
+if [[ "${1:-}" == "__usage_spec__" ]]; then
+  print_usage_spec
+  exit $?
+fi
 
 load_modules() {
   local dir="$1" module
@@ -62,15 +107,9 @@ fetch_remote_modules() {
   }
 
   local tmp module endpoint ref ok
-  local refs=("$SOURCE_REF")
-  # Before the pinned tag is published, a launcher streamed from main can still run.
-  # Explicit GH_REPO_RESET_SOURCE_REF disables this fallback.
-  if [[ -z "${GH_REPO_RESET_SOURCE_REF+x}" && "$SOURCE_REF" == "$VERSION" ]]; then
-    refs+=(main)
-  fi
 
   tmp="$(mktemp -d)"
-  for ref in "${refs[@]}"; do
+  while IFS= read -r ref; do
     ok=1
     rm -f "$tmp"/*.sh
     for module in "${MODULES[@]}"; do
@@ -87,7 +126,7 @@ fetch_remote_modules() {
       printf '%s\n' "$tmp"
       return 0
     fi
-  done
+  done < <(source_refs)
 
   rm -rf "$tmp"
   printf '[%s] ERROR: could not bootstrap modules from %s@%s\n' "$PROGRAM" "$SOURCE_REPO" "$SOURCE_REF" >&2

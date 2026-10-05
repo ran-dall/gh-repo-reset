@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+#MISE description="Run gh-repo-reset tests"
+#USAGE flag "-s --suite <suite>" help="Select the test suite" default="all" {
+#USAGE   choices "all" "syntax" "self" "dry-run" "org" "reset" "pipe"
+#USAGE }
+
+cd "${MISE_PROJECT_ROOT:-$(dirname "$0")/..}"
+exec ./tests/test.sh "${usage_suite:-all}"
