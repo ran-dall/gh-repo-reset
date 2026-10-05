@@ -133,7 +133,7 @@ build_restore_plan ()
 {
     local dir="$1" plan="$1/restore-plan.tsv";
     local labels keys vars env_vars envs action_policies rules protections autolinks hooks access apps org_bindings;
-    local enabled=() detail f;
+    local enabled=() merges=() detail f;
     source "$dir/repo-state.sh";
     : > "$plan";
 
@@ -144,8 +144,13 @@ build_restore_plan ()
     [[ "${ADVANCED_SECURITY:-unknown}" == enabled ]] && enabled+=("advanced security");
     [[ "${SECRET_SCANNING:-unknown}" == enabled ]] && enabled+=("secret scanning");
     [[ "${PUSH_PROTECTION:-unknown}" == enabled ]] && enabled+=("push protection");
+    [[ "$(bool "$ALLOW_SQUASH")" == true ]] && merges+=("squash");
+    [[ "$(bool "$ALLOW_MERGE")" == true ]] && merges+=("merge commit");
+    [[ "$(bool "$ALLOW_REBASE")" == true ]] && merges+=("rebase");
     detail="default=$DEFAULT_BRANCH, visibility=$VISIBILITY";
     ((${#enabled[@]})) && detail+=", enabled=$(join_semicolon "${enabled[@]}")";
+    ((${#merges[@]})) && detail+=", merge methods=$(join_semicolon "${merges[@]}")";
+    detail+=", auto-merge=$(bool "$ALLOW_AUTO_MERGE"), delete-branch-on-merge=$(bool "$DELETE_BRANCH_ON_MERGE"), allow-forking=$(bool "$ALLOW_FORKING"), web-signoff=$(bool "$WEB_COMMIT_SIGNOFF")";
     plan_add "$plan" auto "repository settings" "$detail";
 
     labels="$(count_child_dirs "$dir/labels")";
