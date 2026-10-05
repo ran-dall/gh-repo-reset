@@ -2,7 +2,7 @@
 
 save_repo_state () 
 { 
-    local dir="$1" state owner;
+    local dir="$1" state owner fragment;
     state="$dir/repo-state.sh";
     : > "$state";
     write_assignment "$state" SNAPSHOT_SCHEMA_VERSION 3;
@@ -12,8 +12,9 @@ save_repo_state ()
 
     # Keep a raw copy for audit/recovery, but extract all top-level settings in
     # one additional request instead of issuing one request per field.
-    api "repos/$REPO" > "$dir/repository.json";
-    api "repos/$REPO" --jq '
+    snapshot_capture "$dir/repository.json" "repository settings" api "repos/$REPO";
+    fragment="$dir/repository-state.fragment";
+    snapshot_capture "$fragment" "repository settings projection" api "repos/$REPO" --jq '
       def assign($k; $v): "\($k)=\((($v | tostring) | @sh))";
       [
         assign("OWNER_TYPE"; (.owner.type // "User")),
@@ -55,7 +56,9 @@ save_repo_state ()
         assign("SECRET_SCANNING_DELEGATED_DISMISSAL"; (.security_and_analysis.secret_scanning_delegated_alert_dismissal.status // "unknown")),
         assign("SECRET_SCANNING_DELEGATED_BYPASS"; (.security_and_analysis.secret_scanning_delegated_bypass.status // "unknown"))
       ] | .[]
-    ' >> "$state";
+    ';
+    [[ -f "$fragment" ]] && cat "$fragment" >> "$state";
+    rm -f "$fragment";
 
     snapshot_json_required "$dir/secret-scanning-delegated-bypass-options.json" "repos/$REPO" 'if .security_and_analysis.secret_scanning_delegated_bypass_options == null then empty else {security_and_analysis:{secret_scanning_delegated_bypass_options:.security_and_analysis.secret_scanning_delegated_bypass_options}} end';
 
