@@ -5,9 +5,21 @@ log ()
     printf '[%s] %s\n' "$PROGRAM" "$*" 1>&2
 }
 
+vlog ()
+{
+    (( ${VERBOSE:-0} )) && log "$*"
+    return 0
+}
+
 warn () 
 { 
     printf '[%s] WARNING: %s\n' "$PROGRAM" "$*" 1>&2
+}
+
+vwarn ()
+{
+    (( ${VERBOSE:-0} )) && warn "$*"
+    return 0
 }
 
 die () 
@@ -31,6 +43,7 @@ Options:
   --secrets-dir DIR        Explicit local secret values to reapply after recreation.
   --no-open                Do not open manual follow-up pages with xdg-open.
   --dry-run                Snapshot/report only; do not delete or recreate anything.
+  --verbose                Show detailed detection, snapshot, and restore diagnostics.
   --self-test              Run internal local tests.
   -h, --help               Show help.
   --version                Print the pinned version.
@@ -68,6 +81,9 @@ best_effort ()
     local label="$1";
     shift;
     if ! "$@"; then
+        if [[ -n "${BACKUP_DIR:-}" ]]; then
+            printf '%s\n' "$label" >> "$BACKUP_DIR/restore-failures.txt" 2>/dev/null || true;
+        fi;
         warn "$label failed; continuing.";
         return 0;
     fi
@@ -116,7 +132,7 @@ snapshot_api ()
     local outfile="$1" endpoint="$2";
     shift 2;
     if ! api --paginate --slurp "$endpoint" "$@" > "$outfile" 2> "$outfile.err"; then
-        warn "could not snapshot $endpoint (see $outfile.err)";
+        vwarn "could not snapshot $endpoint (see $outfile.err)";
         rm -f "$outfile";
         return 0;
     fi;
