@@ -143,6 +143,38 @@ write_assignment ()
     printf '%s=%q\n' "$key" "$value" >> "$file"
 }
 
+tsv_decode ()
+{
+    printf '%b' "$1"
+}
+
+run_snapshot_jobs ()
+{
+    local dir="$1";
+    shift;
+    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0;
+    local -a pids=();
+
+    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+
+    for fn in "$@"; do
+        "$fn" "$dir" &
+        pids+=("$!");
+        if (( ${#pids[@]} >= limit )); then
+            for pid in "${pids[@]}"; do
+                wait "$pid" || status=1;
+            done;
+            pids=();
+        fi;
+    done;
+
+    for pid in "${pids[@]}"; do
+        wait "$pid" || status=1;
+    done;
+
+    (( status == 0 )) || die "one or more snapshot jobs failed"
+}
+
 bool () 
 { 
     case "${1:-false}" in 
