@@ -85,18 +85,43 @@ create_repository ()
 
 push_initial_commit () 
 { 
-    local dir="$1";
+    local dir="$1" attempt existing expected err;
     source "$dir/repo-state.sh";
     gh auth setup-git > /dev/null;
     git -C "$dir/git.git" remote set-url origin "https://github.com/$REPO.git";
+
+    expected="$(cat "$dir/initial-commit.txt")";
+    existing="$(git ls-remote origin "refs/heads/$DEFAULT_BRANCH" 2> /dev/null | awk 'NR==1 {print $1}' || true)";
+    if [[ -n "$existing" ]]; then
+        if [[ "$existing" == "$expected" ]]; then
+            vlog "$DEFAULT_BRANCH already points at the prepared initial commit; skipping push.";
+            return 0;
+        fi;
+        die "$REPO already has an unexpected $DEFAULT_BRANCH commit; refusing to overwrite it";
+    fi;
+
     if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" == complete ]]; then
         best_effort "restoring Git LFS objects" git -C "$dir/git.git" lfs push origin refs/gh-repo-reset/initial;
     fi;
-    if (( VERBOSE )); then
-        git -C "$dir/git.git" push --force origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH";
-    elif ! git -C "$dir/git.git" push --force origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" > /dev/null 2>&1; then
-        die "could not push the fresh initial commit";
-    fi
+
+    err="$dir/push.err";
+    for attempt in 1 2 3 4 5; do
+        : > "$err";
+        if (( VERBOSE )); then
+            if git -C "$dir/git.git" push origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" 2> >(tee "$err" >&2); then
+                rm -f "$err";
+                return 0;
+            fi;
+        elif git -C "$dir/git.git" push origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" > /dev/null 2> "$err"; then
+            rm -f "$err";
+            return 0;
+        fi;
+        (( attempt < 5 )) && sleep 2;
+    done;
+
+    printf '[%s] Git push failed:\n' "$PROGRAM" >&2;
+    sed 's/^/  /' "$err" >&2 || true;
+    die "could not push the fresh initial commit; backup is still safe at $dir"
 }
 
 restore_wiki () 
