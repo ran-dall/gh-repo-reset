@@ -108,6 +108,7 @@ gh_repo_reset_main() {
     repair_legacy_repo_booleans "$BACKUP_DIR"
     # shellcheck disable=SC1090
     source "$BACKUP_DIR/repo-state.sh"
+    reconcile_deploy_key_manual_items "$BACKUP_DIR"
     log "Resuming reset: $REPO"
     build_restore_plan "$BACKUP_DIR"
     print_detected_summary "$BACKUP_DIR"
