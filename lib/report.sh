@@ -39,6 +39,80 @@ count_secret_names ()
     printf '%s' "$total"
 }
 
+count_environment_variables ()
+{
+    local dir="$1" envdir total=0;
+    shopt -s nullglob;
+    for envdir in "$dir"/environments/*; do
+        [[ -d "$envdir/variables" ]] || continue;
+        total=$((total + $(count_child_files "$envdir/variables")));
+    done;
+    shopt -u nullglob;
+    printf '%s' "$total"
+}
+
+count_missing_secret_values ()
+{
+    local dir="$1" app file name envdir total=0;
+    for app in actions agents codespaces dependabot; do
+        file="$dir/secrets/$app.names";
+        [[ -f "$file" ]] || continue;
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue;
+            if [[ -n "${SECRETS_DIR:-}" && ( -f "$SECRETS_DIR/repository/$app/$name" || -f "$SECRETS_DIR/$app/$name" ) ]]; then
+                continue;
+            fi;
+            total=$((total+1));
+        done < "$file";
+    done;
+    shopt -s nullglob;
+    for envdir in "$dir"/environments/*; do
+        [[ -f "$envdir/state.sh" && -f "$envdir/actions-secret-names.txt" ]] || continue;
+        source "$envdir/state.sh";
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue;
+            if [[ -n "${SECRETS_DIR:-}" && -f "$SECRETS_DIR/environments/$ENV_KEY/actions/$name" ]]; then
+                continue;
+            fi;
+            total=$((total+1));
+        done < "$envdir/actions-secret-names.txt";
+    done;
+    shopt -u nullglob;
+    printf '%s' "$total"
+}
+
+count_restorable_webhooks ()
+{
+    local dir="$1" hdir secret_file total=0;
+    shopt -s nullglob;
+    for hdir in "$dir"/webhooks/*; do
+        [[ -f "$hdir/state.sh" ]] || continue;
+        source "$hdir/state.sh";
+        secret_file="${SECRETS_DIR:+$SECRETS_DIR/webhooks/$OLD_HOOK_ID.secret}";
+        if [[ "${HOOK_SECRET_STATUS:-unknown}" == unsigned || ( -n "$secret_file" && -f "$secret_file" ) ]]; then
+            total=$((total+1));
+        fi;
+    done;
+    shopt -u nullglob;
+    printf '%s' "$total"
+}
+
+count_unrestorable_signed_webhooks ()
+{
+    local dir="$1" hdir secret_file total=0;
+    shopt -s nullglob;
+    for hdir in "$dir"/webhooks/*; do
+        [[ -f "$hdir/state.sh" ]] || continue;
+        source "$hdir/state.sh";
+        secret_file="${SECRETS_DIR:+$SECRETS_DIR/webhooks/$OLD_HOOK_ID.secret}";
+        if [[ "${HOOK_SECRET_STATUS:-unknown}" != unsigned && ( -z "$secret_file" || ! -f "$secret_file" ) ]]; then
+            total=$((total+1));
+        fi;
+    done;
+    shopt -u nullglob;
+    printf '%s' "$total"
+}
+
 join_semicolon ()
 {
     local out="" item;
@@ -58,7 +132,7 @@ plan_add ()
 build_restore_plan ()
 {
     local dir="$1" plan="$1/restore-plan.tsv";
-    local labels keys vars envs rules protections autolinks hooks access apps org_bindings;
+    local labels keys vars env_vars envs rules protections autolinks hooks access apps org_bindings;
     local enabled=() detail f;
     source "$dir/repo-state.sh";
     : > "$plan";
@@ -77,11 +151,13 @@ build_restore_plan ()
     labels="$(count_child_dirs "$dir/labels")";
     keys="$(count_child_dirs "$dir/deploy-keys")";
     vars="$(count_child_files "$dir/variables/repository")";
+    env_vars="$(count_environment_variables "$dir")";
+    vars=$((vars+env_vars));
     envs="$(count_child_dirs "$dir/environments")";
     rules="$(count_child_dirs "$dir/rulesets")";
     protections="$(count_child_dirs "$dir/branch-protection")";
     autolinks="$(count_child_dirs "$dir/autolinks")";
-    hooks="$(count_child_dirs "$dir/webhooks")";
+    hooks="$(count_restorable_webhooks "$dir")";
     access=$(( $(count_nonempty_lines "$dir/access/collaborators.tsv") + $(count_nonempty_lines "$dir/access/invitations.tsv") + $(count_nonempty_lines "$dir/access/teams.tsv") ));
     apps="$(count_nonempty_lines "$dir/app-installations/selected.tsv")";
     org_bindings=0;
@@ -97,7 +173,7 @@ build_restore_plan ()
 
     (( labels )) && plan_add "$plan" auto "labels" "$labels";
     (( keys )) && plan_add "$plan" auto "deploy keys" "$keys";
-    (( vars )) && plan_add "$plan" auto "repository variables" "$vars";
+    (( vars )) && plan_add "$plan" auto "variables" "$vars";
     (( envs )) && plan_add "$plan" auto "environments" "$envs";
     [[ -d "$dir/actions" ]] && plan_add "$plan" auto "Actions configuration" "captured";
     (( rules )) && plan_add "$plan" auto "rulesets" "$rules";
@@ -137,12 +213,13 @@ print_detected_summary ()
 
     n="$(count_child_dirs "$dir/labels")"; (( n )) && parts+=("$n labels");
     n="$(count_child_dirs "$dir/environments")"; (( n )) && parts+=("$n environments");
-    n="$(count_child_files "$dir/variables/repository")"; (( n )) && parts+=("$n variables");
+    n=$(( $(count_child_files "$dir/variables/repository") + $(count_environment_variables "$dir") )); (( n )) && parts+=("$n variables");
     n="$(count_child_dirs "$dir/rulesets")"; (( n )) && parts+=("$n rulesets");
     n="$(count_child_dirs "$dir/branch-protection")"; (( n )) && parts+=("$n protected branches");
     n="$(count_child_dirs "$dir/webhooks")"; (( n )) && parts+=("$n webhooks");
 
     ((${#parts[@]})) && log "Detected: $(join_semicolon "${parts[@]}")"
+    return 0
 }
 
 print_restore_plan_summary ()
@@ -158,6 +235,7 @@ print_restore_plan_summary ()
     done < "$dir/restore-plan.tsv";
     log "Will restore $auto detected configuration group(s) automatically."
     ((${#manual[@]})) && warn "Manual after reset: $(join_semicolon "${manual[@]}")"
+    return 0
 }
 
 print_restore_plan_details ()
