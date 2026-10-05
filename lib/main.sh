@@ -133,6 +133,8 @@ gh_repo_reset_main() {
   BACKUP_DIR="$BACKUP_ROOT/$SAFE_REPO/$TIMESTAMP"
   mkdir -p "$BACKUP_DIR"
   chmod 700 "$BACKUP_DIR" || true
+  : > "$BACKUP_DIR/snapshot-failures.txt"
+  : > "$BACKUP_DIR/snapshot-errors.log"
 
   if (( DRY_RUN )); then
     log "Dry run: $REPO"
@@ -177,6 +179,13 @@ gh_repo_reset_main() {
   if ! wait "$git_snapshot_pid"; then
     die "Git and metadata snapshot failed"
   fi
+
+  if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+    warn "Snapshot is incomplete; refusing to continue. See $BACKUP_DIR/snapshot-failures.txt"
+    [[ -s "$BACKUP_DIR/snapshot-errors.log" ]] && warn "Snapshot API errors: $BACKUP_DIR/snapshot-errors.log"
+    return 5
+  fi
+
   record_package_actions_access_followup "$BACKUP_DIR"
 
   local metadata_present
