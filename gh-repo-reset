@@ -67,11 +67,21 @@ fi
 load_modules() {
   local dir="$1" module
   for module in "${MODULES[@]}"; do
-    [[ -f "$dir/$module" ]] || return 1
+    [[ -f "$dir/$module" ]] || {
+      printf '[%s] ERROR: missing module: %s\n' "$PROGRAM" "$module" >&2
+      return 1
+    }
+    if ! bash -n "$dir/$module"; then
+      printf '[%s] ERROR: invalid Bash syntax in module: %s\n' "$PROGRAM" "$module" >&2
+      return 1
+    fi
   done
   for module in "${MODULES[@]}"; do
     # shellcheck source=/dev/null
-    source "$dir/$module"
+    if ! source "$dir/$module"; then
+      printf '[%s] ERROR: failed to load module: %s\n' "$PROGRAM" "$module" >&2
+      return 1
+    fi
   done
 }
 
