@@ -194,13 +194,12 @@ gh_repo_reset_main() {
     return 5
   fi
 
-  record_package_actions_access_followup "$BACKUP_DIR"
-
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
 
   metadata_present=0
   if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
   build_restore_plan "$BACKUP_DIR"
   print_detected_summary "$BACKUP_DIR"
   print_restore_plan_summary "$BACKUP_DIR"
