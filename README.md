@@ -195,4 +195,12 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
 
 Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old Git mirror; keep that safety backup until the recreated repository, integrations, packages, workflows, and deployments have all been verified.
 
+If a destructive run is interrupted after the repository has been recreated, resume from that same backup instead of starting another reset:
+
+```bash
+./gh-repo-reset --resume-from /path/to/backup
+```
+
+Resume validates the backup, refuses to overwrite an unexpected default-branch commit, retries the initial push without `--force`, and continues the detected-state restore.
+
 Easy peasy lemon squeezy — with a safety backup first.
