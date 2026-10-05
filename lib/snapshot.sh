@@ -210,14 +210,14 @@ snapshot_actions_settings ()
     local dir="$1" a;
     a="$dir/actions";
     mkdir -p "$a";
-    snapshot_json "$a/permissions.json" "repos/$REPO/actions/permissions" '{enabled,allowed_actions,sha_pinning_required:(.sha_pinning_required // false)}' || :;
-    snapshot_json "$a/selected-actions.json" "repos/$REPO/actions/permissions/selected-actions" '{github_owned_allowed,verified_allowed,patterns_allowed:(.patterns_allowed // [])}' || :;
-    snapshot_json "$a/workflow-permissions.json" "repos/$REPO/actions/permissions/workflow" '{default_workflow_permissions,can_approve_pull_request_reviews}' || :;
-    snapshot_json "$a/access.json" "repos/$REPO/actions/permissions/access" '{access_level}' || :;
-    snapshot_json "$a/fork-pr-workflows.json" "repos/$REPO/actions/permissions/fork-pr-workflows-private-repos" '{run_workflows_from_fork_pull_requests,send_write_tokens_to_workflows,send_secrets_and_variables,require_approval_for_fork_pr_workflows}' || :;
-    snapshot_json "$a/fork-pr-contributor-approval.json" "repos/$REPO/actions/permissions/fork-pr-contributor-approval" '{approval_policy}' || :;
-    snapshot_json "$a/oidc-subject.json" "repos/$REPO/actions/oidc/customization/sub" '{use_default,include_claim_keys:(.include_claim_keys // []),use_immutable_subject:(.use_immutable_subject // false)}' || :;
-    snapshot_json "$a/artifact-retention.json" "repos/$REPO/actions/permissions/artifact-and-log-retention" '{days}' || :;
+    snapshot_json_optional_404 "$a/permissions.json" "repos/$REPO/actions/permissions" '{enabled,allowed_actions,sha_pinning_required:(.sha_pinning_required // false)}';
+    snapshot_json_optional_404 "$a/selected-actions.json" "repos/$REPO/actions/permissions/selected-actions" '{github_owned_allowed,verified_allowed,patterns_allowed:(.patterns_allowed // [])}';
+    snapshot_json_optional_404 "$a/workflow-permissions.json" "repos/$REPO/actions/permissions/workflow" '{default_workflow_permissions,can_approve_pull_request_reviews}';
+    snapshot_json_optional_404 "$a/access.json" "repos/$REPO/actions/permissions/access" '{access_level}';
+    snapshot_json_optional_404 "$a/fork-pr-workflows.json" "repos/$REPO/actions/permissions/fork-pr-workflows-private-repos" '{run_workflows_from_fork_pull_requests,send_write_tokens_to_workflows,send_secrets_and_variables,require_approval_for_fork_pr_workflows}';
+    snapshot_json_optional_404 "$a/fork-pr-contributor-approval.json" "repos/$REPO/actions/permissions/fork-pr-contributor-approval" '{approval_policy}';
+    snapshot_json_optional_404 "$a/oidc-subject.json" "repos/$REPO/actions/oidc/customization/sub" '{use_default,include_claim_keys:(.include_claim_keys // []),use_immutable_subject:(.use_immutable_subject // false)}';
+    snapshot_json_optional_404 "$a/artifact-retention.json" "repos/$REPO/actions/permissions/artifact-and-log-retention" '{days}';
     snapshot_api "$a/runners.json" "repos/$REPO/actions/runners?per_page=100"
 }
 
@@ -231,8 +231,8 @@ snapshot_actions_policies ()
         pdir="$dir/actions-policies/$idx";
         mkdir -p "$pdir";
         write_assignment "$pdir/state.sh" OLD_ACTIONS_POLICY_ID "$id";
-        snapshot_json "$pdir/create.json" "repos/$REPO/actions/policies/$id" '{name,enforcement,conditions:(.conditions // {}),rules:(.rules // [])}' || :;
-    done < <(api --paginate "repos/$REPO/actions/policies?has_parents=false&per_page=100" --jq '.policies[]? | select(.source_type=="Repository") | .id' 2> /dev/null || true)
+        snapshot_json_required "$pdir/create.json" "repos/$REPO/actions/policies/$id" '{name,enforcement,conditions:(.conditions // {}),rules:(.rules // [])}';
+    done < <(snapshot_stream_optional_404 "Actions policies" api --paginate "repos/$REPO/actions/policies?has_parents=false&per_page=100" --jq '.policies[]? | select(.source_type=="Repository") | .id')
 }
 
 snapshot_autolinks () 
@@ -246,9 +246,8 @@ snapshot_autolinks ()
         mkdir -p "$adir";
         printf '%s\n' "$payload" > "$adir/create.json";
     done < <(
-        gh repo autolink list -R "$REPO" --json keyPrefix,urlTemplate,isAlphanumeric \
-          --jq '.[] | {key_prefix:.keyPrefix,url_template:.urlTemplate,is_alphanumeric:.isAlphanumeric} | @json' \
-          2> /dev/null || true
+        snapshot_stream "autolinks" gh repo autolink list -R "$REPO" --json keyPrefix,urlTemplate,isAlphanumeric \
+          --jq '.[] | {key_prefix:.keyPrefix,url_template:.urlTemplate,is_alphanumeric:.isAlphanumeric} | @json'
     )
 }
 
@@ -262,8 +261,8 @@ snapshot_rulesets ()
         rdir="$dir/rulesets/$idx";
         mkdir -p "$rdir";
         write_assignment "$rdir/state.sh" OLD_RULESET_ID "$id";
-        snapshot_json "$rdir/create.json" "repos/$REPO/rulesets/$id" '{name,target,enforcement,bypass_actors:(.bypass_actors // [] | map({actor_id,actor_type,bypass_mode})),conditions,rules}' || :;
-    done < <(api --paginate "repos/$REPO/rulesets?includes_parents=false&per_page=100" --jq '.[] | select(.source_type=="Repository") | .id' 2> /dev/null || true)
+        snapshot_json_required "$rdir/create.json" "repos/$REPO/rulesets/$id" '{name,target,enforcement,bypass_actors:(.bypass_actors // [] | map({actor_id,actor_type,bypass_mode})),conditions,rules}';
+    done < <(snapshot_stream "rulesets" api --paginate "repos/$REPO/rulesets?includes_parents=false&per_page=100" --jq '.[] | select(.source_type=="Repository") | .id')
 }
 
 snapshot_branch_protection () 
@@ -278,19 +277,19 @@ snapshot_branch_protection ()
         enc="$(urlencode "$branch")";
         : > "$bdir/state.sh";
         write_assignment "$bdir/state.sh" BRANCH_NAME "$branch";
-        snapshot_json "$bdir/protection.json" "repos/$REPO/branches/$enc/protection" '{required_status_checks:(if .required_status_checks==null then null else {strict:(.required_status_checks.strict // false),contexts:(.required_status_checks.contexts // []),checks:(.required_status_checks.checks // [] | map({context,app_id}))} end),enforce_admins:(.enforce_admins.enabled // false),required_pull_request_reviews:(if .required_pull_request_reviews==null then null else ({dismiss_stale_reviews:(.required_pull_request_reviews.dismiss_stale_reviews // false),require_code_owner_reviews:(.required_pull_request_reviews.require_code_owner_reviews // false),required_approving_review_count:(.required_pull_request_reviews.required_approving_review_count // 0),require_last_push_approval:(.required_pull_request_reviews.require_last_push_approval // false)} + (if .required_pull_request_reviews.dismissal_restrictions==null then {} else {dismissal_restrictions:{users:(.required_pull_request_reviews.dismissal_restrictions.users // [] | map(.login)),teams:(.required_pull_request_reviews.dismissal_restrictions.teams // [] | map(.slug)),apps:(.required_pull_request_reviews.dismissal_restrictions.apps // [] | map(.slug))}} end) + (if .required_pull_request_reviews.bypass_pull_request_allowances==null then {} else {bypass_pull_request_allowances:{users:(.required_pull_request_reviews.bypass_pull_request_allowances.users // [] | map(.login)),teams:(.required_pull_request_reviews.bypass_pull_request_allowances.teams // [] | map(.slug)),apps:(.required_pull_request_reviews.bypass_pull_request_allowances.apps // [] | map(.slug))}} end)) end),restrictions:(if .restrictions==null then null else {users:(.restrictions.users // [] | map(.login)),teams:(.restrictions.teams // [] | map(.slug)),apps:(.restrictions.apps // [] | map(.slug))} end),required_linear_history:(.required_linear_history.enabled // false),allow_force_pushes:(.allow_force_pushes.enabled // false),allow_deletions:(.allow_deletions.enabled // false),block_creations:(.block_creations.enabled // false),required_conversation_resolution:(.required_conversation_resolution.enabled // false),lock_branch:(.lock_branch.enabled // false),allow_fork_syncing:(.allow_fork_syncing.enabled // false)}' || :;
-        sig="$(api "repos/$REPO/branches/$enc/protection/required_signatures" --jq '.enabled // false' 2> /dev/null || printf false)";
+        snapshot_json_required "$bdir/protection.json" "repos/$REPO/branches/$enc/protection" '{required_status_checks:(if .required_status_checks==null then null else {strict:(.required_status_checks.strict // false),contexts:(.required_status_checks.contexts // []),checks:(.required_status_checks.checks // [] | map({context,app_id}))} end),enforce_admins:(.enforce_admins.enabled // false),required_pull_request_reviews:(if .required_pull_request_reviews==null then null else ({dismiss_stale_reviews:(.required_pull_request_reviews.dismiss_stale_reviews // false),require_code_owner_reviews:(.required_pull_request_reviews.require_code_owner_reviews // false),required_approving_review_count:(.required_pull_request_reviews.required_approving_review_count // 0),require_last_push_approval:(.required_pull_request_reviews.require_last_push_approval // false)} + (if .required_pull_request_reviews.dismissal_restrictions==null then {} else {dismissal_restrictions:{users:(.required_pull_request_reviews.dismissal_restrictions.users // [] | map(.login)),teams:(.required_pull_request_reviews.dismissal_restrictions.teams // [] | map(.slug)),apps:(.required_pull_request_reviews.dismissal_restrictions.apps // [] | map(.slug))}} end) + (if .required_pull_request_reviews.bypass_pull_request_allowances==null then {} else {bypass_pull_request_allowances:{users:(.required_pull_request_reviews.bypass_pull_request_allowances.users // [] | map(.login)),teams:(.required_pull_request_reviews.bypass_pull_request_allowances.teams // [] | map(.slug)),apps:(.required_pull_request_reviews.bypass_pull_request_allowances.apps // [] | map(.slug))}} end)) end),restrictions:(if .restrictions==null then null else {users:(.restrictions.users // [] | map(.login)),teams:(.restrictions.teams // [] | map(.slug)),apps:(.restrictions.apps // [] | map(.slug))} end),required_linear_history:(.required_linear_history.enabled // false),allow_force_pushes:(.allow_force_pushes.enabled // false),allow_deletions:(.allow_deletions.enabled // false),block_creations:(.block_creations.enabled // false),required_conversation_resolution:(.required_conversation_resolution.enabled // false),lock_branch:(.lock_branch.enabled // false),allow_fork_syncing:(.allow_fork_syncing.enabled // false)}';
+        sig="$(snapshot_value_optional_404 "required signatures for $branch" false api "repos/$REPO/branches/$enc/protection/required_signatures" --jq '.enabled // false')";
         write_assignment "$bdir/state.sh" REQUIRED_SIGNATURES "$sig";
-    done < <(api --paginate "repos/$REPO/branches?protected=true&per_page=100" --jq '.[].name' 2> /dev/null || true)
+    done < <(snapshot_stream "protected branches" api --paginate "repos/$REPO/branches?protected=true&per_page=100" --jq '.[].name')
 }
 
 snapshot_access () 
 { 
     local dir="$1";
     mkdir -p "$dir/access";
-    api --paginate "repos/$REPO/collaborators?affiliation=direct&per_page=100" --jq '.[] | [.login, (.role_name // "")] | @tsv' > "$dir/access/collaborators.tsv" 2> /dev/null || :;
-    api --paginate "repos/$REPO/invitations?per_page=100" --jq '.[] | [(.invitee.login // ""), (.permissions // "pull")] | @tsv' > "$dir/access/invitations.tsv" 2> /dev/null || :;
-    api --paginate "repos/$REPO/teams?per_page=100" --jq '.[] | [(.organization.login // ""), .slug, (.permission // "pull")] | @tsv' > "$dir/access/teams.tsv" 2> /dev/null || :
+    snapshot_capture "$dir/access/collaborators.tsv" "direct collaborators" api --paginate "repos/$REPO/collaborators?affiliation=direct&per_page=100" --jq '.[] | [.login, (.role_name // "")] | @tsv';
+    snapshot_capture "$dir/access/invitations.tsv" "pending collaborator invitations" api --paginate "repos/$REPO/invitations?per_page=100" --jq '.[] | [(.invitee.login // ""), (.permissions // "pull")] | @tsv';
+    snapshot_capture "$dir/access/teams.tsv" "team access" api --paginate "repos/$REPO/teams?per_page=100" --jq '.[] | [(.organization.login // ""), .slug, (.permission // "pull")] | @tsv'
 }
 
 snapshot_app_installations () 
@@ -301,10 +300,10 @@ snapshot_app_installations ()
     : > "$dir/app-installations/selected.tsv";
     while IFS='	' read -r installation_id selection slug; do
         [[ -n "$installation_id" && "$selection" == selected ]] || continue;
-        if api --paginate "user/installations/$installation_id/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "GitHub App installation $installation_id repositories" api --paginate "user/installations/$installation_id/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\t%s\n' "$installation_id" "$slug" >> "$dir/app-installations/selected.tsv";
         fi;
-    done < <(api --paginate "user/installations?per_page=100" --jq '.installations[]? | [.id, .repository_selection, (.app_slug // "")] | @tsv' 2> /dev/null || true)
+    done < <(snapshot_stream "GitHub App installations" api --paginate "user/installations?per_page=100" --jq '.installations[]? | [.id, .repository_selection, (.app_slug // "")] | @tsv')
 }
 
 snapshot_org_bindings () 
@@ -362,7 +361,7 @@ snapshot_org_bindings ()
 snapshot_custom_properties () 
 { 
     local dir="$1";
-    snapshot_json "$dir/custom-properties.json" "repos/$REPO/properties/values" '{properties:.}' || :
+    snapshot_json_optional_404 "$dir/custom-properties.json" "repos/$REPO/properties/values" '{properties:.}'
 }
 
 snapshot_pages () 
