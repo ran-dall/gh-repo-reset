@@ -85,6 +85,86 @@ record_restore_failure ()
     fi
 }
 
+record_snapshot_failure ()
+{
+    local label="$1" errfile="${2:-}";
+    [[ -n "${BACKUP_DIR:-}" ]] || return 0;
+    printf '%s\n' "$label" >> "$BACKUP_DIR/snapshot-failures.txt" 2>/dev/null || true;
+    if [[ -n "$errfile" && -s "$errfile" ]]; then
+        {
+            printf '[%s]\n' "$label";
+            cat "$errfile";
+            printf '\n';
+        } >> "$BACKUP_DIR/snapshot-errors.log" 2>/dev/null || true;
+    fi
+}
+
+snapshot_error_is_404 ()
+{
+    local file="$1";
+    [[ -s "$file" ]] || return 1;
+    grep -Eqi '(^|[^0-9])404([^0-9]|$)|not found' "$file"
+}
+
+snapshot_stream ()
+{
+    local label="$1" err;
+    shift;
+    err="$(mktemp)";
+    if "$@" 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    record_snapshot_failure "$label" "$err";
+    rm -f "$err";
+    return 0
+}
+
+snapshot_capture ()
+{
+    local outfile="$1" label="$2";
+    shift 2;
+    if "$@" > "$outfile" 2> "$outfile.err"; then
+        rm -f "$outfile.err";
+        return 0;
+    fi;
+    rm -f "$outfile";
+    record_snapshot_failure "$label" "$outfile.err";
+    rm -f "$outfile.err";
+    return 0
+}
+
+snapshot_capture_optional_404 ()
+{
+    local outfile="$1" label="$2";
+    shift 2;
+    if "$@" > "$outfile" 2> "$outfile.err"; then
+        rm -f "$outfile.err";
+        return 0;
+    fi;
+    rm -f "$outfile";
+    if snapshot_error_is_404 "$outfile.err"; then
+        rm -f "$outfile.err";
+        return 2;
+    fi;
+    record_snapshot_failure "$label" "$outfile.err";
+    rm -f "$outfile.err";
+    return 1
+}
+
+snapshot_json_required ()
+{
+    local outfile="$1" endpoint="$2" jqexpr="$3";
+    snapshot_capture "$outfile" "$endpoint" api "$endpoint" --jq "$jqexpr"
+}
+
+snapshot_json_optional_404 ()
+{
+    local outfile="$1" endpoint="$2" jqexpr="$3" rc=0;
+    snapshot_capture_optional_404 "$outfile" "$endpoint" api "$endpoint" --jq "$jqexpr" || rc=$?;
+    (( rc == 0 || rc == 2 )) || return 0;
+    return 0
+}
 best_effort () 
 { 
     local label="$1" err;
@@ -191,12 +271,7 @@ snapshot_api ()
 { 
     local outfile="$1" endpoint="$2";
     shift 2;
-    if ! api --paginate --slurp "$endpoint" "$@" > "$outfile" 2> "$outfile.err"; then
-        vwarn "could not snapshot $endpoint (see $outfile.err)";
-        rm -f "$outfile";
-        return 0;
-    fi;
-    rm -f "$outfile.err"
+    snapshot_capture "$outfile" "$endpoint" api --paginate --slurp "$endpoint" "$@"
 }
 
 snapshot_json () 
