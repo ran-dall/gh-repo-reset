@@ -408,6 +408,7 @@ run_suite() {
     legacy) test_legacy ;;
     git) test_git ;;
     labels) test_labels ;;
+    packages) test_packages ;;
     environment) test_environment ;;
     deploy-key) test_deploy_key ;;
     snapshot-guard) test_snapshot_guard ;;
@@ -425,16 +426,16 @@ run_suite() {
 
 case "$suite" in
   all)
-    for name in syntax self legacy git labels environment deploy-key dry-run org reset pipe; do
+    for name in syntax self legacy git labels packages environment deploy-key snapshot-guard resume-journal dry-run org reset pipe; do
       run_suite "$name"
     done
     echo 'tests: ok'
     ;;
-  syntax|self|legacy|git|labels|environment|deploy-key|dry-run|org|reset|pipe)
+  syntax|self|legacy|git|labels|packages|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe)
     run_suite "$suite"
     ;;
   *)
-    printf 'usage: %s [all|syntax|self|legacy|git|labels|environment|deploy-key|dry-run|org|reset|pipe]\n' "$0" >&2
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|packages|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe]\n' "$0" >&2
     exit 2
     ;;
 esac
