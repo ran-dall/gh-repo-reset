@@ -15,7 +15,7 @@ Version is intentionally pinned to **`v0.0.0-1`**.
 - GitHub CLI: `gh`
 - `gh` authenticated with admin/owner access to the target repository
 - `git-lfs` optional but strongly recommended when the repository uses Git LFS
-- `xdg-open` optional; after a real reset it opens GitHub settings pages that need manual follow-up
+- `xdg-open` optional; after a real reset it opens only settings pages that correspond to detected manual follow-up
 
 Repository deletion requires the `delete_repo` scope:
 
@@ -25,7 +25,7 @@ gh auth refresh -s delete_repo
 
 ## What it recreates
 
-The tool takes a local safety snapshot first, then restores as much readable repository state as GitHub exposes:
+The tool first inventories the repository's **actual enabled/present state**, builds a repository-specific restore plan, then restores as much captured state as GitHub exposes:
 
 - exact tree of the old default branch as one fresh `Initial commit`
 - repository visibility and common repository/merge/security settings
@@ -136,6 +136,8 @@ mise run test --suite org
 mise run test --suite pipe
 mise run test
 ```
+
+Normal runs are intentionally concise: they report what was actually detected, how many configuration groups will be restored automatically, and only the manual items that apply to that repository. Add `--verbose` for detailed snapshot diagnostics and the full per-feature restore plan.
 
 Run the full local contract + test pass with:
 
