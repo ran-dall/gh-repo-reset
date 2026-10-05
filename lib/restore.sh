@@ -157,7 +157,8 @@ restore_environment_custom_protection_rules ()
         while IFS='	' read -r integration_id app_slug; do
             [[ -n "$integration_id" ]] || continue;
             if ! api --method POST "repos/$REPO/environments/$ENV_KEY/deployment_protection_rules" -F "integration_id=$integration_id" > /dev/null 2>&1; then
-                warn "could not restore custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME; its GitHub App may need re-authorization";
+                record_restore_failure "custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME";
+            warn "could not restore custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME; its GitHub App may need re-authorization";
             fi;
         done < "$envdir/custom-deployment-protection-rules.tsv";
     done;
