@@ -9,6 +9,7 @@ ALLOW_METADATA_LOSS=0
 NO_OPEN=0
 DRY_RUN=0
 VERBOSE=0
+RESUME_FROM=""
 SECRETS_DIR=""
 
 self_test () 
@@ -26,6 +27,46 @@ self_test ()
     printf '%s self-test: ok\n' "$PROGRAM"
 }
 
+restore_detected_state ()
+{
+  local dir="$1"
+  BACKUP_DIR="$dir"
+  # shellcheck disable=SC1090
+  source "$dir/repo-state.sh"
+
+  vlog "Ensuring the prepared initial commit is on $DEFAULT_BRANCH..."
+  push_initial_commit "$dir"
+
+  log "Restoring detected repository state..."
+  restore_repo_settings "$dir"
+  restore_labels "$dir"
+  restore_deploy_keys "$dir"
+  restore_variables "$dir"
+
+  restore_access "$dir"
+  restore_app_installations "$dir"
+  restore_org_bindings "$dir"
+
+  restore_environments "$dir"
+  restore_environment_branch_policies "$dir"
+  restore_environment_custom_protection_rules "$dir"
+  restore_actions_settings "$dir"
+  restore_actions_policies "$dir"
+  restore_autolinks "$dir"
+  restore_custom_properties "$dir"
+  restore_pages "$dir"
+  restore_wiki "$dir"
+  restore_webhooks "$dir"
+  restore_supplied_secrets
+
+  restore_rulesets "$dir"
+  restore_branch_protection "$dir"
+  restore_archived_state "$dir"
+
+  print_restore_result "$dir"
+  manual_followup "$dir"
+}
+
 gh_repo_reset_main() {
   while (($#)); do
     case "$1" in
@@ -36,6 +77,7 @@ gh_repo_reset_main() {
       --no-open) NO_OPEN=1 ;;
       --dry-run) DRY_RUN=1 ;;
       --verbose) VERBOSE=1 ;;
+      --resume-from) shift; (($#)) || die "--resume-from requires a backup directory"; RESUME_FROM="$1" ;;
       --self-test) self_test; return 0 ;;
       --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
       -h|--help) usage; return 0 ;;
@@ -48,6 +90,29 @@ gh_repo_reset_main() {
   need gh
   need git
   gh auth status >/dev/null 2>&1 || die "GitHub CLI is not authenticated; run: gh auth login"
+
+  if [[ -n "$RESUME_FROM" ]]; then
+    [[ -d "$RESUME_FROM" ]] || die "resume backup directory not found: $RESUME_FROM"
+    RESUME_FROM="$(cd -- "$RESUME_FROM" && pwd)"
+    [[ -f "$RESUME_FROM/repo-state.sh" && -d "$RESUME_FROM/git.git" && -f "$RESUME_FROM/initial-commit.txt" ]] || die "resume backup is incomplete: $RESUME_FROM"
+    requested_repo="$REPO"
+    # shellcheck disable=SC1090
+    source "$RESUME_FROM/repo-state.sh"
+    if [[ -n "$requested_repo" && "$requested_repo" != "$REPO" ]]; then
+      die "resume backup is for $REPO, not $requested_repo"
+    fi
+    api "repos/$REPO" >/dev/null || die "cannot read recreated $REPO with current gh authentication"
+    BACKUP_DIR="$RESUME_FROM"
+    log "Resuming reset: $REPO"
+    [[ -f "$BACKUP_DIR/restore-plan.tsv" ]] || build_restore_plan "$BACKUP_DIR"
+    print_detected_summary "$BACKUP_DIR"
+    print_restore_plan_summary "$BACKUP_DIR"
+    (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+    restore_detected_state "$BACKUP_DIR"
+    log "Done. Safety backup: $BACKUP_DIR"
+    return 0
+  fi
+
   if [[ -z "$REPO" ]]; then REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"; fi
   [[ "$REPO" == */* ]] || die "repository must be OWNER/REPO: $REPO"
   api "repos/$REPO" >/dev/null || die "cannot read $REPO with current gh authentication"
@@ -146,38 +211,6 @@ GUARD_EOF
 
   vlog "Recreating with visibility: $VISIBILITY"
   create_repository "$VISIBILITY"
-  vlog "Pushing one fresh initial commit only..."
-  push_initial_commit "$BACKUP_DIR"
-
-  log "Restoring detected repository state..."
-  restore_repo_settings "$BACKUP_DIR"
-  restore_labels "$BACKUP_DIR"
-  restore_deploy_keys "$BACKUP_DIR"
-  restore_variables "$BACKUP_DIR"
-
-  # Identity/access comes before policies that reference users, teams, or installations.
-  restore_access "$BACKUP_DIR"
-  restore_app_installations "$BACKUP_DIR"
-  restore_org_bindings "$BACKUP_DIR"
-
-  restore_environments "$BACKUP_DIR"
-  restore_environment_branch_policies "$BACKUP_DIR"
-  restore_environment_custom_protection_rules "$BACKUP_DIR"
-  restore_actions_settings "$BACKUP_DIR"
-  restore_actions_policies "$BACKUP_DIR"
-  restore_autolinks "$BACKUP_DIR"
-  restore_custom_properties "$BACKUP_DIR"
-  restore_pages "$BACKUP_DIR"
-  restore_wiki "$BACKUP_DIR"
-  restore_webhooks "$BACKUP_DIR"
-  restore_supplied_secrets
-
-  # Protections are deliberately last so they cannot block bootstrap writes.
-  restore_rulesets "$BACKUP_DIR"
-  restore_branch_protection "$BACKUP_DIR"
-  restore_archived_state "$BACKUP_DIR"
-
-  print_restore_result "$BACKUP_DIR"
-  manual_followup "$BACKUP_DIR"
+  restore_detected_state "$BACKUP_DIR"
   log "Done. Safety backup: $BACKUP_DIR"
 }
