@@ -63,6 +63,7 @@ if [[ "$args" == *" secret list "* ]]; then
   exit 0
 fi
 if [[ "$args" == *" label list "* ]]; then exit 0; fi
+if [[ "$args" == *" repo autolink list "* ]]; then exit 0; fi
 if [[ "$args" == *" repo clone "* ]]; then /usr/bin/git clone --mirror "$MOCK_SOURCE" "$4" >/dev/null 2>&1; exit 0; fi
 if [[ "$args" == *" repo delete "* || "$args" == *" repo create "* || "$args" == *" repo edit "* || "$args" == *" repo archive "* || "$args" == *" repo deploy-key add "* || "$args" == *" variable set "* || "$args" == *" secret set "* || "$args" == *" label delete "* || "$args" == *" label create "* ]]; then exit 0; fi
 if [[ "$args" == *" api "* ]]; then
