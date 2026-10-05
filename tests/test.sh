@@ -336,6 +336,14 @@ test_snapshot_guard() (
   [[ "$rc" -eq 2 ]]
   ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
   [[ ! -e "$tmp/pages.json" ]]
+
+  rc=0
+  snapshot_capture_optional_404 "$tmp/deployment-branch-policies.tsv" "environment Preview deployment branch policies" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  ! grep -Fq 'environment Preview deployment branch policies' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/deployment-branch-policies.tsv" ]]
+
+  grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
   grep -q 'snapshot-failures.txt' ./lib/main.sh
   echo 'snapshot-guard: ok'
 )
