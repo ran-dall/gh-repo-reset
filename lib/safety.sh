@@ -12,34 +12,36 @@ file_has_secret_names ()
 
 has_irreplaceable_metadata () 
 { 
-    local found=0 first stars forks is_fork f;
+    local found=0 first stars forks is_fork f secret_count;
+    : > "$BACKUP_DIR/manual-items.tsv";
     first="$(api "repos/$REPO/issues?state=all&per_page=1" --jq '.[0].number // empty' 2> /dev/null || true)";
     if [[ -n "$first" ]]; then
-        warn "repository has issues and/or pull requests; they are archived locally but not recreated";
+        record_manual_item history "issues and/or pull requests are not recreated";
         found=1;
     fi;
     first="$(api "repos/$REPO/releases?per_page=1" --jq '.[0].id // empty' 2> /dev/null || true)";
     if [[ -n "$first" ]]; then
-        warn "repository has releases/assets that are not recreated";
+        record_manual_item history "releases/assets are not recreated";
         found=1;
     fi;
     stars="$(repo_field '.stargazers_count // 0')";
     forks="$(repo_field '.forks_count // 0')";
     is_fork="$(repo_field '.fork // false')";
     if (( stars > 0 )); then
-        warn "repository has $stars star(s) that do not follow a newly created repository ID";
+        record_manual_item identity "$stars star(s) do not follow the new repository ID";
         found=1;
     fi;
     if (( forks > 0 )); then
-        warn "repository has $forks fork(s); fork-network identity can be affected";
+        record_manual_item identity "$forks fork(s) may be affected";
         found=1;
     fi;
     if [[ "$(bool "$is_fork")" == true ]]; then
-        warn "repository is a fork; the recreated repository is standalone";
+        record_manual_item identity "fork-network identity is not recreated";
         found=1;
     fi;
     if file_has_secret_names; then
-        warn "stored secret values are intentionally unreadable; names only were captured";
+        secret_count="$(count_secret_names "$BACKUP_DIR")";
+        record_manual_item secrets "$secret_count stored secret value(s) must be supplied or re-entered";
         found=1;
     fi;
     for f in "$BACKUP_DIR"/webhooks/*/state.sh;
@@ -47,13 +49,13 @@ has_irreplaceable_metadata ()
         [[ -f "$f" ]] || continue;
         source "$f";
         if [[ "${HOOK_SECRET_STATUS:-unknown}" != unsigned ]]; then
-            warn "a webhook may use a signing secret; it requires an explicitly supplied secret value";
+            record_manual_item webhooks "signed webhook secret(s) must be supplied or re-entered";
             found=1;
             break;
         fi;
     done;
     if [[ -s "$BACKUP_DIR/actions/runners.json" ]] && grep -q '"total_count"[[:space:]]*:[[:space:]]*[1-9]' "$BACKUP_DIR/actions/runners.json" 2> /dev/null; then
-        warn "repository has self-hosted runner registrations; runner credentials cannot be migrated";
+        record_manual_item runners "self-hosted runner registrations must be reauthorized";
         found=1;
     fi;
     for f in "$BACKUP_DIR"/branch-protection/*/state.sh;
@@ -62,20 +64,20 @@ has_irreplaceable_metadata ()
         source "$f";
         source "$BACKUP_DIR/repo-state.sh";
         if [[ "$BRANCH_NAME" != "$DEFAULT_BRANCH" ]]; then
-            warn "protected branch '$BRANCH_NAME' will not exist after the single-branch reset";
+            record_manual_item branches "protected branch '$BRANCH_NAME' will not be recreated";
             found=1;
         fi;
     done;
     source "$BACKUP_DIR/repo-state.sh";
     if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" != complete ]]; then
-        warn "Git LFS content is in use but was not safely backed up";
+        record_manual_item lfs "Git LFS objects were not safely backed up";
         found=1;
     fi;
     if [[ -f "$BACKUP_DIR/pages-state.sh" ]]; then
         source "$BACKUP_DIR/pages-state.sh";
         source "$BACKUP_DIR/repo-state.sh";
         if [[ "${PAGES_BUILD_TYPE:-legacy}" != workflow && -n "${PAGES_SOURCE_BRANCH:-}" && "$PAGES_SOURCE_BRANCH" != "$DEFAULT_BRANCH" ]]; then
-            warn "Pages publishes from '$PAGES_SOURCE_BRANCH', which will not be recreated";
+            record_manual_item pages "Pages source '$PAGES_SOURCE_BRANCH' will not be recreated";
             found=1;
         fi;
     fi;
