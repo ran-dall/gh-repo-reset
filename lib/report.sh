@@ -2,8 +2,10 @@
 
 record_manual_item ()
 {
-    local key="$1" detail="$2";
-    printf '%s\t%s\n' "$key" "$detail" >> "$BACKUP_DIR/manual-items.tsv"
+    local key="$1" detail="$2" line;
+    line="$(printf '%s\t%s' "$key" "$detail")";
+    [[ -f "$BACKUP_DIR/manual-items.tsv" ]] && grep -Fqx "$line" "$BACKUP_DIR/manual-items.tsv" && return 0;
+    printf '%s\n' "$line" >> "$BACKUP_DIR/manual-items.tsv"
 }
 
 json_top_level_bool ()
@@ -146,6 +148,16 @@ join_semicolon ()
     printf '%s' "$out"
 }
 
+join_comma ()
+{
+    local out="" item;
+    for item in "$@"; do
+        [[ -n "$out" ]] && out+=", ";
+        out+="$item";
+    done;
+    printf '%s' "$out"
+}
+
 plan_add ()
 {
     local file="$1" mode="$2" feature="$3" detail="$4";
@@ -241,7 +253,7 @@ print_detected_summary ()
     [[ "${PUSH_PROTECTION:-unknown}" == enabled ]] && enabled+=("push protection");
     [[ -f "$dir/pages-state.sh" ]] && enabled+=("Pages");
     [[ "${LFS_USED:-false}" == true ]] && enabled+=("Git LFS");
-    ((${#enabled[@]})) && parts+=("$(IFS=', '; echo "${enabled[*]}")");
+    ((${#enabled[@]})) && parts+=("$(join_comma "${enabled[@]}")");
 
     n="$(count_child_dirs "$dir/labels")"; (( n )) && parts+=("$n labels");
     n="$(count_child_dirs "$dir/deploy-keys")"; (( n )) && parts+=("$n deploy keys");
