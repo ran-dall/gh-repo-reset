@@ -361,6 +361,12 @@ test_resume_journal() (
   restore_once "ruleset:42" "restoring test ruleset" create_once
   [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
   [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
+  [[ ! -f "$tmp/restore-pending.txt" || ! -s "$tmp/restore-pending.txt" ]]
+
+  printf 'ruleset:99\n' > "$tmp/restore-pending.txt"
+  restore_once "ruleset:99" "restoring interrupted test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  grep -Fq 'restoring interrupted test ruleset (unfinished prior attempt)' "$tmp/restore-failures.txt"
 
   mkdir -p "$tmp/webhooks/1"
   cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
@@ -383,6 +389,17 @@ STATE_EOF
   restore_webhooks "$tmp"
   [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
   [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
+
+  mkdir -p "$tmp/webhooks/2"
+  cat > "$tmp/webhooks/2/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=5678
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  cp "$tmp/webhooks/1/create.json" "$tmp/webhooks/2/create.json"
+  printf 'webhook:5678\n' >> "$tmp/restore-pending.txt"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  grep -Fq 'webhook 5678 (unfinished prior attempt)' "$tmp/restore-failures.txt"
   echo 'resume-journal: ok'
 )
 
