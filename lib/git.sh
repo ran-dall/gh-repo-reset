@@ -91,7 +91,7 @@ push_initial_commit ()
     git -C "$dir/git.git" remote set-url origin "https://github.com/$REPO.git";
 
     expected="$(cat "$dir/initial-commit.txt")";
-    existing="$(git ls-remote origin "refs/heads/$DEFAULT_BRANCH" 2> /dev/null | awk 'NR==1 {print $1}' || true)";
+    existing="$(git -C "$dir/git.git" ls-remote origin "refs/heads/$DEFAULT_BRANCH" 2> /dev/null | awk 'NR==1 {print $1}' || true)";
     if [[ -n "$existing" ]]; then
         if [[ "$existing" == "$expected" ]]; then
             vlog "$DEFAULT_BRANCH already points at the prepared initial commit; skipping push.";
