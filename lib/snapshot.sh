@@ -5,6 +5,7 @@ save_repo_state ()
     local dir="$1" state owner;
     state="$dir/repo-state.sh";
     : > "$state";
+    write_assignment "$state" SNAPSHOT_SCHEMA_VERSION 2;
     write_assignment "$state" REPO "$REPO";
     owner="${REPO%%/*}";
     write_assignment "$state" OWNER "$owner";
@@ -18,15 +19,15 @@ save_repo_state ()
     write_assignment "$state" HAS_PROJECTS "$(repo_field '.has_projects // false')";
     write_assignment "$state" HAS_WIKI "$(repo_field '.has_wiki // false')";
     write_assignment "$state" HAS_DISCUSSIONS "$(repo_field '.has_discussions // false')";
-    write_assignment "$state" ALLOW_SQUASH "$(repo_field '.allow_squash_merge // true')";
-    write_assignment "$state" ALLOW_MERGE "$(repo_field '.allow_merge_commit // true')";
-    write_assignment "$state" ALLOW_REBASE "$(repo_field '.allow_rebase_merge // true')";
+    write_assignment "$state" ALLOW_SQUASH "$(repo_field 'if .allow_squash_merge == null then true else .allow_squash_merge end')";
+    write_assignment "$state" ALLOW_MERGE "$(repo_field 'if .allow_merge_commit == null then true else .allow_merge_commit end')";
+    write_assignment "$state" ALLOW_REBASE "$(repo_field 'if .allow_rebase_merge == null then true else .allow_rebase_merge end')";
     write_assignment "$state" ALLOW_AUTO_MERGE "$(repo_field '.allow_auto_merge // false')";
     write_assignment "$state" DELETE_BRANCH_ON_MERGE "$(repo_field '.delete_branch_on_merge // false')";
     write_assignment "$state" ALLOW_UPDATE_BRANCH "$(repo_field '.allow_update_branch // false')";
-    write_assignment "$state" ALLOW_FORKING "$(repo_field '.allow_forking // true')";
-    write_assignment "$state" HAS_DOWNLOADS "$(repo_field '.has_downloads // true')";
-    write_assignment "$state" HAS_PULL_REQUESTS "$(repo_field '.has_pull_requests // true')";
+    write_assignment "$state" ALLOW_FORKING "$(repo_field 'if .allow_forking == null then true else .allow_forking end')";
+    write_assignment "$state" HAS_DOWNLOADS "$(repo_field 'if .has_downloads == null then true else .has_downloads end')";
+    write_assignment "$state" HAS_PULL_REQUESTS "$(repo_field 'if .has_pull_requests == null then true else .has_pull_requests end')";
     write_assignment "$state" PULL_REQUEST_CREATION_POLICY "$(repo_field '.pull_request_creation_policy // ""')";
     write_assignment "$state" SQUASH_MERGE_COMMIT_TITLE "$(repo_field '.squash_merge_commit_title // ""')";
     write_assignment "$state" SQUASH_MERGE_COMMIT_MESSAGE "$(repo_field '.squash_merge_commit_message // ""')";
@@ -93,7 +94,7 @@ snapshot_deploy_keys ()
         keydir="$dir/deploy-keys/$n";
         mkdir -p "$keydir";
         title="$(api "repos/$REPO/keys/$id" --jq '.title // ""')";
-        readonly="$(api "repos/$REPO/keys/$id" --jq '.read_only // true')";
+        readonly="$(api "repos/$REPO/keys/$id" --jq 'if .read_only == null then true else .read_only end')";
         key="$(api "repos/$REPO/keys/$id" --jq '.key // ""')";
         : > "$keydir/state.sh";
         write_assignment "$keydir/state.sh" TITLE "$title";
