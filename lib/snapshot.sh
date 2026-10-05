@@ -75,7 +75,7 @@ save_repo_state ()
     else
         write_assignment "$state" IMMUTABLE_RELEASES unknown;
     fi;
-    api "repos/$REPO/topics" --jq '.names[]?' > "$dir/topics.txt" || :
+    snapshot_capture "$dir/topics.txt" "repository topics" api "repos/$REPO/topics" --jq '.names[]?'
 }
 
 snapshot_labels () 
@@ -95,8 +95,8 @@ snapshot_labels ()
         write_assignment "$ldir/state.sh" LABEL_COLOR "${color:-ededed}";
         write_assignment "$ldir/state.sh" LABEL_DESCRIPTION "$description";
     done < <(
-        gh label list -R "$REPO" --limit 1000 --json name,color,description \
-          --jq '.[] | [.name, .color, (.description // "")] | @tsv' 2> /dev/null || true
+        snapshot_stream "labels" gh label list -R "$REPO" --limit 1000 --json name,color,description \
+          --jq '.[] | [.name, .color, (.description // "")] | @tsv'
     )
 }
 
@@ -117,8 +117,8 @@ snapshot_deploy_keys ()
         write_assignment "$keydir/state.sh" READ_ONLY "$readonly";
         printf '%s\n' "$key" > "$keydir/key.pub";
     done < <(
-        gh repo deploy-key list -R "$REPO" --json title,key,readOnly \
-          --jq '.[] | [.title, .key, (.readOnly|tostring)] | @tsv' 2> /dev/null || true
+        snapshot_stream "deploy keys" gh repo deploy-key list -R "$REPO" --json title,key,readOnly \
+          --jq '.[] | [.title, .key, (.readOnly|tostring)] | @tsv'
     )
 }
 
@@ -132,8 +132,8 @@ snapshot_variables ()
         value="$(tsv_decode "$raw_value")";
         printf '%s' "$value" > "$dir/variables/repository/$name";
     done < <(
-        gh variable list -R "$REPO" --json name,value \
-          --jq '.[] | [.name, .value] | @tsv' 2> /dev/null || true
+        snapshot_stream "repository variables" gh variable list -R "$REPO" --json name,value \
+          --jq '.[] | [.name, .value] | @tsv'
     )
 }
 
@@ -151,8 +151,8 @@ snapshot_secrets ()
             printf '%s\n' "$name" >> "$dir/secrets/$app.names";
             printf '%s\t%s\n' "$name" "$updated" >> "$dir/secrets/$app.tsv";
         done < <(
-            gh secret list -R "$REPO" --app "$app" --json name,updatedAt \
-              --jq '.[] | [.name, (.updatedAt // "")] | @tsv' 2> /dev/null || true
+            snapshot_stream "repository $app secret metadata" gh secret list -R "$REPO" --app "$app" --json name,updatedAt \
+              --jq '.[] | [.name, (.updatedAt // "")] | @tsv'
         );
     done
 }
@@ -172,12 +172,11 @@ snapshot_environments ()
         write_assignment "$envdir/state.sh" ENV_NAME "$env";
         write_assignment "$envdir/state.sh" ENV_KEY "$encoded";
 
-        snapshot_json "$envdir/environment-restore.json" "repos/$REPO/environments/$encoded" '(.protection_rules // []) as $rules | ([$rules[]? | select(.type=="wait_timer")][0]) as $wait | ([$rules[]? | select(.type=="required_reviewers")][0]) as $review | ({deployment_branch_policy:(.deployment_branch_policy // null)} + (if $wait == null then {} else {wait_timer:($wait.wait_timer // 0)} end) + (if $review == null then {} else {prevent_self_review:($review.prevent_self_review // false),reviewers:([$review.reviewers[]? | {type:.type,id:.reviewer.id}])} end))' || :;
-        api "repos/$REPO/environments/$encoded" > "$envdir/environment.json" 2> /dev/null || :;
-        api --paginate "repos/$REPO/environments/$encoded/deployment_protection_rules?per_page=100" --jq '.custom_deployment_protection_rules[]? | [.app.id, (.app.slug // "")] | @tsv' > "$envdir/custom-deployment-protection-rules.tsv" 2> /dev/null || :;
-        api "repos/$REPO/environments/$encoded/deployment-branch-policies?per_page=100" \
-          --jq '.branch_policies[]? | [.name, (.type // "branch")] | @tsv' \
-          > "$envdir/deployment-branch-policies.tsv" 2> /dev/null || :;
+        snapshot_json_required "$envdir/environment-restore.json" "repos/$REPO/environments/$encoded" '(.protection_rules // []) as $rules | ([$rules[]? | select(.type=="wait_timer")][0]) as $wait | ([$rules[]? | select(.type=="required_reviewers")][0]) as $review | ({deployment_branch_policy:(.deployment_branch_policy // null)} + (if $wait == null then {} else {wait_timer:($wait.wait_timer // 0)} end) + (if $review == null then {} else {prevent_self_review:($review.prevent_self_review // false),reviewers:([$review.reviewers[]? | {type:.type,id:.reviewer.id}])} end))';
+        snapshot_capture "$envdir/environment.json" "environment $env" api "repos/$REPO/environments/$encoded";
+        snapshot_capture "$envdir/custom-deployment-protection-rules.tsv" "environment $env custom deployment protection rules" api --paginate "repos/$REPO/environments/$encoded/deployment_protection_rules?per_page=100" --jq '.custom_deployment_protection_rules[]? | [.app.id, (.app.slug // "")] | @tsv';
+        snapshot_capture "$envdir/deployment-branch-policies.tsv" "environment $env deployment branch policies" api "repos/$REPO/environments/$encoded/deployment-branch-policies?per_page=100" \
+          --jq '.branch_policies[]? | [.name, (.type // "branch")] | @tsv';
 
         while IFS=$'\t' read -r raw_name raw_value; do
             [[ -n "$raw_name" ]] || continue;
@@ -185,8 +184,8 @@ snapshot_environments ()
             value="$(tsv_decode "$raw_value")";
             printf '%s' "$value" > "$envdir/variables/$name";
         done < <(
-            gh variable list -R "$REPO" --env "$env" --json name,value \
-              --jq '.[] | [.name, .value] | @tsv' 2> /dev/null || true
+            snapshot_stream "environment $env variables" gh variable list -R "$REPO" --env "$env" --json name,value \
+              --jq '.[] | [.name, .value] | @tsv'
         );
 
         : > "$envdir/actions-secret-names.txt";
@@ -198,11 +197,11 @@ snapshot_environments ()
             printf '%s\n' "$secret_name" >> "$envdir/actions-secret-names.txt";
             printf '%s\t%s\n' "$secret_name" "$secret_updated" >> "$envdir/actions-secrets.tsv";
         done < <(
-            gh secret list -R "$REPO" --env "$env" --app actions --json name,updatedAt \
-              --jq '.[] | [.name, (.updatedAt // "")] | @tsv' 2> /dev/null || true
+            snapshot_stream "environment $env Actions secret metadata" gh secret list -R "$REPO" --env "$env" --app actions --json name,updatedAt \
+              --jq '.[] | [.name, (.updatedAt // "")] | @tsv'
         );
     done < <(
-        api --paginate "repos/$REPO/environments?per_page=100" --jq '.environments[].name' 2> /dev/null || true
+        snapshot_stream "environments" api --paginate "repos/$REPO/environments?per_page=100" --jq '.environments[].name'
     )
 }
 
