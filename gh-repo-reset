@@ -117,40 +117,82 @@ fetch_remote_modules() {
     exit 1
   }
 
-  local tmp module endpoint ref ok first limit pid
+  local tmp module endpoint ref ok first limit pid owner name expr manifest truncated body graphql_ok
   local -a pids=()
+  local query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Tree{entries{name type object{... on Blob{text isTruncated}}}}}}}'
 
   tmp="$(mktemp -d)"
   limit="${GH_REPO_RESET_JOBS:-4}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4
   first="${MODULES[0]}"
+  owner="${SOURCE_REPO%%/*}"
+  name="${SOURCE_REPO#*/}"
+  manifest="$tmp/modules.tsv"
 
   while IFS= read -r ref; do
     ok=1
-    rm -f "$tmp"/*.sh
+    graphql_ok=0
+    rm -f "$tmp"/*.sh "$manifest"
+    expr="$ref:lib"
 
-    # Probe the ref once. This keeps the unpublished-version fallback cheap
-    # instead of launching a full batch against a ref that does not exist.
-    endpoint="repos/$SOURCE_REPO/contents/lib/$first?ref=$ref"
-    if ! gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$first" 2>/dev/null; then
-      continue
+    # Fast path: fetch every module blob in lib/ in one GraphQL request.
+    if gh api graphql \
+      -f query="$query" \
+      -f owner="$owner" \
+      -f name="$name" \
+      -f expr="$expr" \
+      --jq '.data.repository.object.entries[]? | select(.type=="blob" and (.name|endswith(".sh"))) | [.name, (.object.isTruncated|tostring), (.object.text // "")] | @tsv' \
+      > "$manifest" 2>/dev/null; then
+      if [[ -s "$manifest" ]]; then
+        while IFS=$'\t' read -r module truncated body; do
+          [[ -n "$module" ]] || continue
+          if [[ "$truncated" != false ]]; then
+            ok=0
+            break
+          fi
+          printf '%b' "$body" > "$tmp/$module"
+        done < "$manifest"
+
+        if (( ok )); then
+          for module in "${MODULES[@]}"; do
+            [[ -s "$tmp/$module" ]] || { ok=0; break; }
+          done
+        fi
+
+        if (( ok )); then
+          graphql_ok=1
+        fi
+      else
+        # A successful query with no lib tree means this ref does not exist.
+        continue
+      fi
     fi
 
-    pids=()
-    for module in "${MODULES[@]:1}"; do
-      endpoint="repos/$SOURCE_REPO/contents/lib/$module?ref=$ref"
-      gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$module" 2>/dev/null &
-      pids+=("$!")
-      if (( ${#pids[@]} >= limit )); then
-        for pid in "${pids[@]}"; do
-          wait "$pid" || ok=0
-        done
-        pids=()
+    if (( ! graphql_ok )); then
+      # Compatibility fallback: bounded parallel REST content fetches.
+      ok=1
+      rm -f "$tmp"/*.sh
+      endpoint="repos/$SOURCE_REPO/contents/lib/$first?ref=$ref"
+      if ! gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$first" 2>/dev/null; then
+        continue
       fi
-    done
-    for pid in "${pids[@]}"; do
-      wait "$pid" || ok=0
-    done
+
+      pids=()
+      for module in "${MODULES[@]:1}"; do
+        endpoint="repos/$SOURCE_REPO/contents/lib/$module?ref=$ref"
+        gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$module" 2>/dev/null &
+        pids+=("$!")
+        if (( ${#pids[@]} >= limit )); then
+          for pid in "${pids[@]}"; do
+            wait "$pid" || ok=0
+          done
+          pids=()
+        fi
+      done
+      for pid in "${pids[@]}"; do
+        wait "$pid" || ok=0
+      done
+    fi
 
     if (( ok )); then
       if [[ "$ref" != "$SOURCE_REF" ]]; then
