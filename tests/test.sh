@@ -120,7 +120,7 @@ test_labels() (
   local tmp test_gh_log
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  test_gh_log="$test_gh_log"
+  test_gh_log="$tmp/gh.log"
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
