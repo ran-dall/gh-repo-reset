@@ -319,39 +319,39 @@ snapshot_org_bindings ()
     : > "$dir/org-bindings/runner-groups.txt";
     while IFS= read -r name; do
         [[ -n "$name" ]] || continue;
-        if api --paginate "orgs/$OWNER/actions/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "org Actions secret $name repositories" api --paginate "orgs/$OWNER/actions/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\n' "$name" >> "$dir/org-bindings/actions-secrets.txt";
         fi;
-    done < <(api --paginate "orgs/$OWNER/actions/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name' 2> /dev/null || true);
+    done < <(snapshot_stream "org Actions secrets" api --paginate "orgs/$OWNER/actions/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
     while IFS= read -r name; do
         [[ -n "$name" ]] || continue;
-        if api --paginate "orgs/$OWNER/dependabot/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "org Dependabot secret $name repositories" api --paginate "orgs/$OWNER/dependabot/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\n' "$name" >> "$dir/org-bindings/dependabot-secrets.txt";
         fi;
-    done < <(api --paginate "orgs/$OWNER/dependabot/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name' 2> /dev/null || true);
+    done < <(snapshot_stream "org Dependabot secrets" api --paginate "orgs/$OWNER/dependabot/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
     while IFS= read -r name; do
         [[ -n "$name" ]] || continue;
-        if api --paginate "orgs/$OWNER/codespaces/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "org Codespaces secret $name repositories" api --paginate "orgs/$OWNER/codespaces/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\n' "$name" >> "$dir/org-bindings/codespaces-secrets.txt";
         fi;
-    done < <(api --paginate "orgs/$OWNER/codespaces/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name' 2> /dev/null || true);
+    done < <(snapshot_stream "org Codespaces secrets" api --paginate "orgs/$OWNER/codespaces/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
     while IFS= read -r name; do
         [[ -n "$name" ]] || continue;
-        if api --paginate "orgs/$OWNER/actions/variables/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "org Actions variable $name repositories" api --paginate "orgs/$OWNER/actions/variables/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\n' "$name" >> "$dir/org-bindings/actions-variables.txt";
         fi;
-    done < <(api --paginate "orgs/$OWNER/actions/variables?per_page=100" --jq '.variables[]? | select(.visibility=="selected") | .name' 2> /dev/null || true);
-    enabled="$(api "orgs/$OWNER/actions/permissions" --jq '.enabled_repositories // ""' 2> /dev/null || true)";
-    if [[ "$enabled" == selected ]] && api --paginate "orgs/$OWNER/actions/permissions/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+    done < <(snapshot_stream "org Actions variables" api --paginate "orgs/$OWNER/actions/variables?per_page=100" --jq '.variables[]? | select(.visibility=="selected") | .name');
+    enabled="$(snapshot_value "org Actions repository policy" "" api "orgs/$OWNER/actions/permissions" --jq '.enabled_repositories // ""')";
+    if [[ "$enabled" == selected ]] && snapshot_stream "org Actions selected repositories" api --paginate "orgs/$OWNER/actions/permissions/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
         : > "$dir/org-bindings/actions-enabled-selected";
     fi;
     while IFS= read -r group_id; do
         [[ -n "$group_id" ]] || continue;
-        if api --paginate "orgs/$OWNER/actions/runner-groups/$group_id/repositories?per_page=100" --jq '.repositories[]?.id' 2> /dev/null | grep -Fxq "$REPO_ID"; then
+        if snapshot_stream "runner group $group_id repositories" api --paginate "orgs/$OWNER/actions/runner-groups/$group_id/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
             printf '%s\n' "$group_id" >> "$dir/org-bindings/runner-groups.txt";
         fi;
-    done < <(api --paginate "orgs/$OWNER/actions/runner-groups?per_page=100" --jq '.runner_groups[]? | select(.visibility=="selected") | .id' 2> /dev/null || true);
-    config_id="$(api "repos/$REPO/code-security-configuration" --jq 'select(.status=="attached") | .configuration.id // empty' 2> /dev/null || true)";
+    done < <(snapshot_stream "org runner groups" api --paginate "orgs/$OWNER/actions/runner-groups?per_page=100" --jq '.runner_groups[]? | select(.visibility=="selected") | .id');
+    config_id="$(snapshot_value_optional_404 "code security configuration" "" api "repos/$REPO/code-security-configuration" --jq 'select(.status=="attached") | .configuration.id // empty')";
     if [[ -n "$config_id" ]]; then
         printf '%s\n' "$config_id" > "$dir/org-bindings/code-security-configuration-id";
     fi;
@@ -366,15 +366,20 @@ snapshot_custom_properties ()
 
 snapshot_pages () 
 { 
-    local dir="$1" file;
+    local dir="$1" file fragment rc=0;
     file="$dir/pages-state.sh";
-    if ! api "repos/$REPO/pages" > "$dir/pages.json" 2> /dev/null; then
+    snapshot_capture_optional_404 "$dir/pages.json" "Pages configuration" api "repos/$REPO/pages" || rc=$?;
+    if (( rc == 2 )); then
         rm -f "$dir/pages.json";
+        return 0;
+    fi;
+    if (( rc != 0 )); then
         return 0;
     fi;
     : > "$file";
     write_assignment "$file" PAGES_PRESENT true;
-    api "repos/$REPO/pages" --jq '
+    fragment="$dir/pages-state.fragment";
+    snapshot_capture "$fragment" "Pages settings" api "repos/$REPO/pages" --jq '
       def assign($k; $v): "\($k)=\((($v | tostring) | @sh))";
       [
         assign("PAGES_BUILD_TYPE"; (.build_type // "legacy")),
@@ -383,7 +388,9 @@ snapshot_pages ()
         assign("PAGES_CNAME"; (.cname // "")),
         assign("PAGES_HTTPS"; (.https_enforced // false))
       ] | .[]
-    ' >> "$file"
+    ';
+    [[ -f "$fragment" ]] && cat "$fragment" >> "$file";
+    rm -f "$fragment"
 }
 
 snapshot_webhooks () 
@@ -400,11 +407,10 @@ snapshot_webhooks ()
         : > "$hdir/state.sh";
         write_assignment "$hdir/state.sh" OLD_HOOK_ID "$id";
         printf '%s\n' "$payload" > "$hdir/create.json";
-        secret_status="$(api "repos/$REPO/hooks/$id/config" --jq 'if (.secret // "") == "" then "unsigned" else "signed" end' 2> /dev/null || printf unknown)";
+        secret_status="$(snapshot_value "webhook $id configuration" unknown api "repos/$REPO/hooks/$id/config" --jq 'if (.secret // "") == "" then "unsigned" else "signed" end')";
         write_assignment "$hdir/state.sh" HOOK_SECRET_STATUS "$secret_status";
     done < <(
-        api --paginate "repos/$REPO/hooks?per_page=100" \
-          --jq '.[] | [.id, ({name,active,events,config:{url:.config.url,content_type:(.config.content_type // "json"),insecure_ssl:(.config.insecure_ssl // "0")}} | tojson)] | @tsv' \
-          2> /dev/null || true
+        snapshot_stream "webhooks" api --paginate "repos/$REPO/hooks?per_page=100" \
+          --jq '.[] | [.id, ({name,active,events,config:{url:.config.url,content_type:(.config.content_type // "json"),insecure_ssl:(.config.insecure_ssl // "0")}} | tojson)] | @tsv'
     )
 }
