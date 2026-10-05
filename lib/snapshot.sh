@@ -390,19 +390,23 @@ snapshot_pages ()
 
 snapshot_webhooks () 
 { 
-    local dir="$1" id idx=0 hdir secret_status;
+    local dir="$1" raw_id raw_payload id payload idx=0 hdir secret_status;
     mkdir -p "$dir/webhooks";
-    while IFS= read -r id; do
-        [[ -n "$id" ]] || continue;
+    while IFS=$'\t' read -r raw_id raw_payload; do
+        [[ -n "$raw_id" ]] || continue;
+        id="$(tsv_decode "$raw_id")";
+        payload="$(tsv_decode "$raw_payload")";
         idx=$((idx+1));
         hdir="$dir/webhooks/$idx";
         mkdir -p "$hdir";
         : > "$hdir/state.sh";
         write_assignment "$hdir/state.sh" OLD_HOOK_ID "$id";
-        snapshot_json "$hdir/create.json" "repos/$REPO/hooks/$id" '{name,active,events,config:{url:.config.url,content_type:(.config.content_type // "json"),insecure_ssl:(.config.insecure_ssl // "0")}}' || :;
+        printf '%s\n' "$payload" > "$hdir/create.json";
         secret_status="$(api "repos/$REPO/hooks/$id/config" --jq 'if (.secret // "") == "" then "unsigned" else "signed" end' 2> /dev/null || printf unknown)";
         write_assignment "$hdir/state.sh" HOOK_SECRET_STATUS "$secret_status";
     done < <(
-        api --paginate "repos/$REPO/hooks?per_page=100" --jq '.[].id' 2> /dev/null || true
+        api --paginate "repos/$REPO/hooks?per_page=100" \
+          --jq '.[] | [.id, ({name,active,events,config:{url:.config.url,content_type:(.config.content_type // "json"),insecure_ssl:(.config.insecure_ssl // "0")}} | tojson)] | @tsv' \
+          2> /dev/null || true
     )
 }
