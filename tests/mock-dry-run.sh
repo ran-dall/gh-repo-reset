@@ -57,6 +57,49 @@ if [[ "$args" == *" api "* ]]; then
   if [[ "$endpoint" == user/installations/77/repositories\?per_page=100 && "${MOCK_CONFIG:-0}" == 1 && "$jqexpr" == *'.repositories[]?.id'* ]]; then
     printf '123\n'; exit 0
   fi
+  if [[ "$endpoint" == repos/* && "$jqexpr" == *'assign("OWNER_TYPE"'* ]]; then
+    cat <<'STATE_EOF'
+OWNER_TYPE='User'
+REPO_ID='123'
+DESCRIPTION='demo'
+HOMEPAGE=''
+VISIBILITY='private'
+DEFAULT_BRANCH='main'
+HAS_ISSUES='true'
+HAS_PROJECTS='true'
+HAS_WIKI='false'
+HAS_DISCUSSIONS='false'
+ALLOW_SQUASH='true'
+ALLOW_MERGE='true'
+ALLOW_REBASE='true'
+ALLOW_AUTO_MERGE='false'
+DELETE_BRANCH_ON_MERGE='false'
+ALLOW_UPDATE_BRANCH='false'
+ALLOW_FORKING='false'
+HAS_DOWNLOADS='false'
+HAS_PULL_REQUESTS='true'
+PULL_REQUEST_CREATION_POLICY='all'
+SQUASH_MERGE_COMMIT_TITLE='COMMIT_OR_PR_TITLE'
+SQUASH_MERGE_COMMIT_MESSAGE='COMMIT_MESSAGES'
+MERGE_COMMIT_TITLE='MERGE_MESSAGE'
+MERGE_COMMIT_MESSAGE='PR_TITLE'
+WEB_COMMIT_SIGNOFF='false'
+IS_TEMPLATE='false'
+ARCHIVED='false'
+IS_FORK='false'
+STARGAZERS='0'
+FORKS='0'
+ADVANCED_SECURITY='unknown'
+CODE_SECURITY='unknown'
+SECRET_SCANNING='unknown'
+PUSH_PROTECTION='unknown'
+SECRET_SCANNING_AI='unknown'
+SECRET_SCANNING_NON_PROVIDER='unknown'
+SECRET_SCANNING_DELEGATED_DISMISSAL='unknown'
+SECRET_SCANNING_DELEGATED_BYPASS='unknown'
+STATE_EOF
+    exit 0
+  fi
   if [[ "$endpoint" == repos/*/pages ]]; then exit 1; fi
   case "$jqexpr" in
     *'.id'*) printf '123\n' ;;
