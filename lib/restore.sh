@@ -18,7 +18,14 @@ restore_repo_settings ()
     best_effort "restoring repository settings" gh repo edit "${args[@]}";
     best_effort "restoring default branch" gh repo edit "$REPO" --default-branch "$DEFAULT_BRANCH";
     [[ "$(bool "$IS_TEMPLATE")" == true ]] && best_effort "restoring template flag" gh repo edit "$REPO" --template;
-    best_effort "restoring forking policy" gh repo edit "$REPO" --allow-forking="$(bool "$ALLOW_FORKING")";
+    local desired_forking current_forking;
+    desired_forking="$(bool "$ALLOW_FORKING")";
+    current_forking="$(repo_field '.allow_forking // false' 2> /dev/null || printf unknown)";
+    if [[ "$current_forking" != "$desired_forking" ]]; then
+        best_effort "restoring forking policy" gh repo edit "$REPO" --allow-forking="$desired_forking";
+    else
+        vlog "Forking policy already matches: $desired_forking";
+    fi;
     best_effort "restoring web commit signoff" api --method PATCH "repos/$REPO" -F "web_commit_signoff_required=$(bool "$WEB_COMMIT_SIGNOFF")" > /dev/null;
     local extra_payload="$dir/repository-extra-settings.json";
     printf '{' > "$extra_payload";
@@ -45,7 +52,7 @@ restore_repo_settings ()
     restore_security_analysis_status secret_scanning_delegated_alert_dismissal "${SECRET_SCANNING_DELEGATED_DISMISSAL:-unknown}" "restoring delegated secret-alert dismissal";
     restore_security_analysis_status secret_scanning_delegated_bypass "${SECRET_SCANNING_DELEGATED_BYPASS:-unknown}" "restoring delegated push-protection bypass";
     restore_json "restoring delegated push-protection reviewers/options" PATCH "repos/$REPO" "$dir/secret-scanning-delegated-bypass-options.json";
-    if [[ "$VULNERABILITY_ALERTS" == enabled ]]; then
+    if [[ "$VULNERABILITY_ALERTS" == enabled || "${DEPENDABOT_SECURITY_UPDATES:-unknown}" == enabled ]]; then
         best_effort "restoring vulnerability alerts" api --method PUT "repos/$REPO/vulnerability-alerts" > /dev/null;
     fi;
     if [[ "${DEPENDABOT_SECURITY_UPDATES:-unknown}" == enabled ]]; then
@@ -79,16 +86,37 @@ restore_labels ()
 
 restore_deploy_keys () 
 { 
-    local dir="$1" keydir;
+    local dir="$1" keydir err label;
     shopt -s nullglob;
     for keydir in "$dir"/deploy-keys/*;
     do
         source "$keydir/state.sh";
+        err="$keydir/restore.err";
+        label="restoring deploy key: $TITLE";
         if [[ "$(bool "$READ_ONLY")" == true ]]; then
-            best_effort "restoring deploy key: $TITLE" gh repo deploy-key add "$keydir/key.pub" -R "$REPO" --title "$TITLE";
+            if gh repo deploy-key add "$keydir/key.pub" -R "$REPO" --title "$TITLE" > /dev/null 2> "$err"; then
+                rm -f "$err";
+                continue;
+            fi;
         else
-            best_effort "restoring writable deploy key: $TITLE" gh repo deploy-key add "$keydir/key.pub" -R "$REPO" --title "$TITLE" --allow-write;
+            label="restoring writable deploy key: $TITLE";
+            if gh repo deploy-key add "$keydir/key.pub" -R "$REPO" --title "$TITLE" --allow-write > /dev/null 2> "$err"; then
+                rm -f "$err";
+                continue;
+            fi;
         fi;
+
+        if grep -qi 'key is already in use' "$err"; then
+            record_manual_item deploy_keys "deploy key '$TITLE' is already attached to another GitHub account or repository";
+            warn "deploy key '$TITLE' could not be transferred because GitHub reports that key is already in use";
+            rm -f "$err";
+            continue;
+        fi;
+
+        record_restore_failure "$label";
+        warn "$label failed; continuing.";
+        (( VERBOSE )) && sed 's/^/  /' "$err" >&2 || true;
+        rm -f "$err";
     done;
     shopt -u nullglob
 }
