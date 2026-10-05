@@ -85,10 +85,24 @@ record_restore_failure ()
     fi
 }
 
+record_snapshot_status ()
+{
+    local label="$1" status="$2";
+    [[ -n "${BACKUP_DIR:-}" ]] || return 0;
+    case "$status" in
+        captured|absent|failed) ;;
+        *) return 2 ;;
+    esac;
+    label="${label//$'\t'/ }";
+    label="${label//$'\n'/ }";
+    printf '%s\t%s\n' "$label" "$status" >> "$BACKUP_DIR/snapshot-status.tsv" 2>/dev/null || true
+}
+
 record_snapshot_failure ()
 {
     local label="$1" errfile="${2:-}";
     [[ -n "${BACKUP_DIR:-}" ]] || return 0;
+    record_snapshot_status "$label" failed;
     printf '%s\n' "$label" >> "$BACKUP_DIR/snapshot-failures.txt" 2>/dev/null || true;
     if [[ -n "$errfile" && -s "$errfile" ]]; then
         {
@@ -112,6 +126,7 @@ snapshot_stream ()
     shift;
     err="$(mktemp)";
     if "$@" 2> "$err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$err";
         return 0;
     fi;
@@ -126,10 +141,12 @@ snapshot_stream_optional_404 ()
     shift;
     err="$(mktemp)";
     if "$@" 2> "$err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$err";
         return 0;
     fi;
     if snapshot_error_is_404 "$err"; then
+        record_snapshot_status "$label" absent;
         rm -f "$err";
         return 0;
     fi;
@@ -143,11 +160,13 @@ snapshot_capture_optional_pattern ()
     local outfile="$1" label="$2" pattern="$3";
     shift 3;
     if "$@" > "$outfile" 2> "$outfile.err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$outfile.err";
         return 0;
     fi;
     rm -f "$outfile";
     if grep -Eqi "$pattern" "$outfile.err"; then
+        record_snapshot_status "$label" absent;
         rm -f "$outfile.err";
         return 0;
     fi;
@@ -168,6 +187,7 @@ snapshot_value ()
     shift 2;
     err="$(mktemp)";
     if "$@" 2> "$err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$err";
         return 0;
     fi;
@@ -183,21 +203,26 @@ snapshot_value_optional_404 ()
     shift 2;
     err="$(mktemp)";
     if "$@" 2> "$err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$err";
         return 0;
     fi;
-    if ! snapshot_error_is_404 "$err"; then
+    if snapshot_error_is_404 "$err"; then
+        record_snapshot_status "$label" absent;
+    else
         record_snapshot_failure "$label" "$err";
     fi;
     rm -f "$err";
     printf '%s' "$fallback";
     return 0
 }
+
 snapshot_capture ()
 {
     local outfile="$1" label="$2";
     shift 2;
     if "$@" > "$outfile" 2> "$outfile.err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$outfile.err";
         return 0;
     fi;
@@ -212,11 +237,13 @@ snapshot_capture_optional_404 ()
     local outfile="$1" label="$2";
     shift 2;
     if "$@" > "$outfile" 2> "$outfile.err"; then
+        record_snapshot_status "$label" captured;
         rm -f "$outfile.err";
         return 0;
     fi;
     rm -f "$outfile";
     if snapshot_error_is_404 "$outfile.err"; then
+        record_snapshot_status "$label" absent;
         rm -f "$outfile.err";
         return 2;
     fi;
@@ -238,6 +265,7 @@ snapshot_json_optional_404 ()
     (( rc == 0 || rc == 2 )) || return 0;
     return 0
 }
+
 best_effort () 
 { 
     local label="$1" err;
