@@ -44,5 +44,5 @@ grep -q 'root-push-ok' "$TMP/git.log"
 grep -q 'actions/permissions' "$TMP/gh.log"
 grep -q 'properties/values' "$TMP/gh.log"
 grep -q 'user/installations/77/repositories/123' "$TMP/gh.log"
-grep -q 'Finished. Verify' "$TMP/err"
+grep -q 'Done. Safety backup:' "$TMP/err"
 echo 'mock reset: ok'
