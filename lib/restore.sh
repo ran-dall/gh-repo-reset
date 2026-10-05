@@ -72,8 +72,8 @@ restore_repo_settings ()
 restore_labels () 
 { 
     local dir="$1" tmp ldir cdir idx=0;
-    local raw_name raw_color raw_description current_name current_color current_description;
-    local found desired_match;
+    local raw_name raw_color raw_description;
+    local current_name current_color current_description found desired_match;
 
     tmp="$(mktemp -d)";
     mkdir -p "$tmp/current";
@@ -86,9 +86,9 @@ restore_labels ()
         current_name="$(tsv_decode "$raw_name")";
         current_color="$(tsv_decode "$raw_color")";
         current_description="$(tsv_decode "$raw_description")";
-        write_assignment "$cdir/state.sh" LABEL_NAME "$current_name";
-        write_assignment "$cdir/state.sh" LABEL_COLOR "$current_color";
-        write_assignment "$cdir/state.sh" LABEL_DESCRIPTION "$current_description";
+        write_assignment "$cdir/state.sh" CURRENT_LABEL_NAME "$current_name";
+        write_assignment "$cdir/state.sh" CURRENT_LABEL_COLOR "$current_color";
+        write_assignment "$cdir/state.sh" CURRENT_LABEL_DESCRIPTION "$current_description";
     done < <(
         gh label list -R "$REPO" --limit 1000 --json name,color,description \
           --jq '.[] | [.name, .color, (.description // "")] | @tsv' 2> /dev/null || true
@@ -96,30 +96,26 @@ restore_labels ()
 
     shopt -s nullglob;
     for ldir in "$dir"/labels/*; do
+        # shellcheck disable=SC1090
         source "$ldir/state.sh";
         found=0;
         for cdir in "$tmp"/current/*; do
             # shellcheck disable=SC1090
             source "$cdir/state.sh";
-            if [[ "$LABEL_NAME" == "$current_name" ]]; then
+            if [[ "$CURRENT_LABEL_NAME" == "$LABEL_NAME" ]]; then
                 found=1;
-                if [[ "$LABEL_COLOR" == "$current_color" && "$LABEL_DESCRIPTION" == "$current_description" ]]; then
+                if [[ "$CURRENT_LABEL_COLOR" == "$LABEL_COLOR" && "$CURRENT_LABEL_DESCRIPTION" == "$LABEL_DESCRIPTION" ]]; then
+                    : > "$cdir/keep";
+                else
+                    best_effort "updating label $LABEL_NAME" gh label create "$LABEL_NAME" -R "$REPO" \
+                      --force --color "$LABEL_COLOR" --description "$LABEL_DESCRIPTION";
                     : > "$cdir/keep";
                 fi;
                 break;
             fi;
         done;
 
-        # Reload the desired label after inspecting current-label state.
-        # shellcheck disable=SC1090
-        source "$ldir/state.sh";
-        if (( found )); then
-            if [[ ! -f "$cdir/keep" ]]; then
-                best_effort "updating label $LABEL_NAME" gh label create "$LABEL_NAME" -R "$REPO" \
-                  --force --color "$LABEL_COLOR" --description "$LABEL_DESCRIPTION";
-                : > "$cdir/keep";
-            fi;
-        else
+        if (( ! found )); then
             best_effort "restoring label $LABEL_NAME" gh label create "$LABEL_NAME" -R "$REPO" \
               --color "$LABEL_COLOR" --description "$LABEL_DESCRIPTION";
         fi;
@@ -133,13 +129,13 @@ restore_labels ()
         for ldir in "$dir"/labels/*; do
             # shellcheck disable=SC1090
             source "$ldir/state.sh";
-            if [[ "$LABEL_NAME" == "$current_name" ]]; then
+            if [[ "$LABEL_NAME" == "$CURRENT_LABEL_NAME" ]]; then
                 desired_match=1;
                 break;
             fi;
         done;
         if (( ! desired_match )); then
-            gh label delete "$current_name" -R "$REPO" --yes > /dev/null 2>&1 || true;
+            gh label delete "$CURRENT_LABEL_NAME" -R "$REPO" --yes > /dev/null 2>&1 || true;
         fi;
     done;
     shopt -u nullglob;
