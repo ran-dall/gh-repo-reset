@@ -169,17 +169,7 @@ gh_repo_reset_main() {
     snapshot_pages \
     snapshot_webhooks
 
-  # Deployment policy entries are kept as TSV so restore stays Bash + gh only.
-  local envdir metadata_present
-  for envdir in "$BACKUP_DIR"/environments/*; do
-    [[ -f "$envdir/state.sh" ]] || continue
-    # shellcheck disable=SC1090
-    source "$envdir/state.sh"
-    api "repos/$REPO/environments/$ENV_KEY/deployment-branch-policies?per_page=100" \
-      --jq '.branch_policies[]? | [.name, (.type // "branch")] | @tsv' \
-      >"$envdir/deployment-branch-policies.tsv" 2>/dev/null || :
-  done
-
+  local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
 
   metadata_present=0
