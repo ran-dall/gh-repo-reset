@@ -388,9 +388,12 @@ snapshot_json ()
 { 
     local outfile="$1" endpoint="$2" jqexpr="$3";
     if ! api "$endpoint" --jq "$jqexpr" > "$outfile" 2> "$outfile.err"; then
-        rm -f "$outfile" "$outfile.err";
+        rm -f "$outfile";
+        record_snapshot_failure "$endpoint" "$outfile.err";
+        rm -f "$outfile.err";
         return 1;
     fi;
+    record_snapshot_status "$endpoint" captured;
     rm -f "$outfile.err";
     return 0
 }
