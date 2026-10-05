@@ -19,6 +19,7 @@ done
 ./gh-repo-reset --help | grep -q 'one fresh initial commit'
 [[ "$(./gh-repo-reset --version)" == 'gh-repo-reset v0.0.0-1' ]]
 ./tests/mock-dry-run.sh
+MOCK_OWNER_TYPE=Organization MOCK_NO_CODE_SECURITY=1 ./tests/mock-dry-run.sh
 ./tests/mock-reset.sh
 ./tests/mock-pipe.sh
 

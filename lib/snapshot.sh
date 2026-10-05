@@ -293,7 +293,10 @@ snapshot_org_bindings ()
         fi;
     done < <(api --paginate "orgs/$OWNER/actions/runner-groups?per_page=100" --jq '.runner_groups[]? | select(.visibility=="selected") | .id' 2> /dev/null || true);
     config_id="$(api "repos/$REPO/code-security-configuration" --jq 'select(.status=="attached") | .configuration.id // empty' 2> /dev/null || true)";
-    [[ -n "$config_id" ]] && printf '%s\n' "$config_id" > "$dir/org-bindings/code-security-configuration-id"
+    if [[ -n "$config_id" ]]; then
+        printf '%s\n' "$config_id" > "$dir/org-bindings/code-security-configuration-id";
+    fi;
+    return 0
 }
 
 snapshot_custom_properties () 

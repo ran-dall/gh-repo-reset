@@ -49,7 +49,8 @@ if [[ "$args" == *" api "* ]]; then
     case "$x" in repos/*|users/*|user|user/*|orgs/*) endpoint="$x" ;; esac
   done
   if [[ "$endpoint" == user ]]; then printf 'tester\n'; exit 0; fi
-  if [[ "$endpoint" == users/* ]]; then printf 'User\n'; exit 0; fi
+  if [[ "$endpoint" == users/* ]]; then printf '%s\n' "${MOCK_OWNER_TYPE:-User}"; exit 0; fi
+  if [[ "$endpoint" == repos/*/code-security-configuration && "${MOCK_NO_CODE_SECURITY:-0}" == 1 ]]; then exit 0; fi
   if [[ "$endpoint" == user/installations\?per_page=100 && "${MOCK_CONFIG:-0}" == 1 && "$jqexpr" == *'.installations[]?'* ]]; then
     printf '77\tselected\tdemo-app\n'; exit 0
   fi
