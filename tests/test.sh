@@ -114,6 +114,53 @@ test_git() {
   echo 'git: ok'
 }
 
+test_labels() (
+  set -Eeuo pipefail
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  mkdir -p "$tmp/labels/1" "$tmp/labels/2"
+  cat > "$tmp/labels/1/state.sh" <<'STATE_EOF'
+LABEL_NAME=bug
+LABEL_COLOR=d73a4a
+LABEL_DESCRIPTION=broken
+STATE_EOF
+  cat > "$tmp/labels/2/state.sh" <<'STATE_EOF'
+LABEL_NAME=custom
+LABEL_COLOR=123456
+LABEL_DESCRIPTION=desired
+STATE_EOF
+
+  source ./lib/core.sh
+  source ./lib/restore.sh
+
+  gh() {
+    local args=" $* "
+    if [[ "$args" == *" label list "* ]]; then
+      printf 'bug\td73a4a\tbroken\n'
+      printf 'custom\tabcdef\told\n'
+      printf 'extra\tffffff\tremove\n'
+      return 0
+    fi
+    printf '%s\n' "$*" >> "$tmp/gh.log"
+    return 0
+  }
+
+  restore_labels "$tmp"
+
+  ! grep -Fq 'label create bug' "$tmp/gh.log"
+  grep -Fq 'label create custom -R owner/repo --force --color 123456 --description desired' "$tmp/gh.log"
+  grep -Fq 'label delete extra -R owner/repo --yes' "$tmp/gh.log"
+  ! grep -Fq 'label delete bug' "$tmp/gh.log"
+  ! grep -Fq 'label delete custom' "$tmp/gh.log"
+  echo 'labels: ok'
+)
+
 test_deploy_key() (
   set -Eeuo pipefail
   local tmp
@@ -179,6 +226,7 @@ run_suite() {
     self) test_self ;;
     legacy) test_legacy ;;
     git) test_git ;;
+    labels) test_labels ;;
     deploy-key) test_deploy_key ;;
     dry-run) test_dry_run ;;
     org) test_org ;;
@@ -193,16 +241,16 @@ run_suite() {
 
 case "$suite" in
   all)
-    for name in syntax self legacy git deploy-key dry-run org reset pipe; do
+    for name in syntax self legacy git labels deploy-key dry-run org reset pipe; do
       run_suite "$name"
     done
     echo 'tests: ok'
     ;;
-  syntax|self|legacy|git|deploy-key|dry-run|org|reset|pipe)
+  syntax|self|legacy|git|labels|deploy-key|dry-run|org|reset|pipe)
     run_suite "$suite"
     ;;
   *)
-    printf 'usage: %s [all|syntax|self|legacy|git|deploy-key|dry-run|org|reset|pipe]\n' "$0" >&2
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|deploy-key|dry-run|org|reset|pipe]\n' "$0" >&2
     exit 2
     ;;
 esac
