@@ -89,6 +89,9 @@ push_initial_commit ()
     source "$dir/repo-state.sh";
     gh auth setup-git > /dev/null;
     git -C "$dir/git.git" remote set-url origin "https://github.com/$REPO.git";
+    # A mirror clone sets remote.origin.mirror=true, which makes Git reject
+    # a single-ref push ("--mirror can't be combined with refspecs").
+    git -C "$dir/git.git" config --unset-all remote.origin.mirror > /dev/null 2>&1 || true;
 
     expected="$(cat "$dir/initial-commit.txt")";
     existing="$(git -C "$dir/git.git" ls-remote origin "refs/heads/$DEFAULT_BRANCH" 2> /dev/null | awk 'NR==1 {print $1}' || true)";
