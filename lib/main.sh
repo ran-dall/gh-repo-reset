@@ -8,6 +8,7 @@ YES=0
 ALLOW_METADATA_LOSS=0
 NO_OPEN=0
 DRY_RUN=0
+VERBOSE=0
 SECRETS_DIR=""
 
 self_test () 
@@ -34,6 +35,7 @@ gh_repo_reset_main() {
       --secrets-dir) shift; (($#)) || die "--secrets-dir requires a value"; SECRETS_DIR="$1" ;;
       --no-open) NO_OPEN=1 ;;
       --dry-run) DRY_RUN=1 ;;
+      --verbose) VERBOSE=1 ;;
       --self-test) self_test; return 0 ;;
       --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
       -h|--help) usage; return 0 ;;
@@ -60,14 +62,18 @@ gh_repo_reset_main() {
   mkdir -p "$BACKUP_DIR"
   chmod 700 "$BACKUP_DIR" || true
 
-  log "Version:    $VERSION"
-  log "Repository: $REPO"
   if (( DRY_RUN )); then
-    log "Snapshot:   $BACKUP_DIR"
+    log "Dry run: $REPO"
   else
-    log "Backup:     $BACKUP_DIR"
+    log "Resetting: $REPO"
   fi
-  log "Snapshotting GitHub state and Git history..."
+  vlog "Version: $VERSION"
+  if (( DRY_RUN )); then
+    vlog "Snapshot: $BACKUP_DIR"
+  else
+    vlog "Backup: $BACKUP_DIR"
+  fi
+  log "Snapshotting repository state..."
 
   save_repo_state "$BACKUP_DIR"
   snapshot_labels "$BACKUP_DIR"
@@ -103,11 +109,15 @@ gh_repo_reset_main() {
 
   metadata_present=0
   if has_irreplaceable_metadata; then metadata_present=1; fi
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
 
   if (( DRY_RUN )); then
-    (( metadata_present )) && warn "a destructive run requires --allow-metadata-loss because non-round-trippable state was detected"
-    log "Dry run complete. No destructive operation was performed."
-    manual_followup "$BACKUP_DIR"
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
     return 0
   fi
 
@@ -128,18 +138,18 @@ GUARD_EOF
   # shellcheck disable=SC1090
   source "$BACKUP_DIR/repo-state.sh"
 
-  log "Deleting $REPO..."
-  if ! gh repo delete "$REPO" --yes; then
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
     printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
     return 4
   fi
 
-  log "Recreating $REPO with visibility: $VISIBILITY"
+  vlog "Recreating with visibility: $VISIBILITY"
   create_repository "$VISIBILITY"
-  log "Pushing one fresh initial commit only..."
+  vlog "Pushing one fresh initial commit only..."
   push_initial_commit "$BACKUP_DIR"
 
-  log "Restoring readable repository configuration (best effort)..."
+  log "Restoring detected repository state..."
   restore_repo_settings "$BACKUP_DIR"
   restore_labels "$BACKUP_DIR"
   restore_deploy_keys "$BACKUP_DIR"
@@ -167,6 +177,7 @@ GUARD_EOF
   restore_branch_protection "$BACKUP_DIR"
   restore_archived_state "$BACKUP_DIR"
 
+  print_restore_result "$BACKUP_DIR"
   manual_followup "$BACKUP_DIR"
-  log "Finished. Verify the recreated repository before deleting the safety backup."
+  log "Done. Safety backup: $BACKUP_DIR"
 }
