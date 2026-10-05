@@ -44,6 +44,7 @@ Options:
   --no-open                Do not open manual follow-up pages with xdg-open.
   --dry-run                Snapshot/report only; do not delete or recreate anything.
   --verbose                Show detailed detection, snapshot, and restore diagnostics.
+  --resume-from DIR         Resume an interrupted reset from a persistent safety backup.
   --self-test              Run internal local tests.
   -h, --help               Show help.
   --version                Print the pinned version.
