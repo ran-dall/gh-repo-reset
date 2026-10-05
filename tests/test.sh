@@ -161,6 +161,65 @@ STATE_EOF
   echo 'labels: ok'
 )
 
+test_environment() (
+  set -Eeuo pipefail
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  mkdir -p "$tmp/environments/1/variables"
+  cat > "$tmp/environments/1/state.sh" <<'STATE_EOF'
+ENV_NAME=copilot
+ENV_KEY=copilot
+STATE_EOF
+  cat > "$tmp/environments/1/environment-restore.json" <<'JSON_EOF'
+{"wait_timer":0,"prevent_self_review":false,"reviewers":[],"deployment_branch_policy":null}
+JSON_EOF
+  cat > "$tmp/environments/1/environment.json" <<'JSON_EOF'
+{"name":"copilot","protection_rules":[],"deployment_branch_policy":null}
+JSON_EOF
+
+  source ./lib/core.sh
+  source ./lib/report.sh
+  source ./lib/restore.sh
+
+  gh() {
+    local args=" $* " input="" prev=""
+    printf '%s\n' "$*" >> "$tmp/gh.log"
+    for x in "$@"; do
+      if [[ "$prev" == --input ]]; then input="$x"; prev=""; continue; fi
+      [[ "$x" == --input ]] && prev=--input
+    done
+    if [[ "$args" == *" api --method PUT repos/owner/repo/environments/copilot "* ]]; then
+      if [[ -n "$input" && -f "$input" ]] && grep -q '"reviewers"' "$input"; then
+        printf 'protection rules unavailable for private repository\n' >&2
+        return 1
+      fi
+      return 0
+    fi
+    return 0
+  }
+
+  restore_environments "$tmp"
+
+  [[ "$(grep -c 'api --method PUT repos/owner/repo/environments/copilot' "$tmp/gh.log")" -eq 2 ]]
+  [[ ! -s "$tmp/restore-failures.txt" || ! -f "$tmp/restore-failures.txt" ]]
+  [[ ! -f "$tmp/manual-items.tsv" || ! -s "$tmp/manual-items.tsv" ]]
+
+  cat > "$tmp/environments/1/environment.json" <<'JSON_EOF'
+{"name":"copilot","protection_rules":[{"type":"required_reviewers","reviewers":[{"type":"User","reviewer":{"id":42}}]}],"deployment_branch_policy":null}
+JSON_EOF
+  : > "$tmp/gh.log"
+  restore_environments "$tmp"
+  grep -q '^environment_policy[[:space:]]' "$tmp/manual-items.tsv"
+  [[ ! -s "$tmp/restore-failures.txt" || ! -f "$tmp/restore-failures.txt" ]]
+  echo 'environment: ok'
+)
+
 test_deploy_key() (
   set -Eeuo pipefail
   local tmp
@@ -227,6 +286,7 @@ run_suite() {
     legacy) test_legacy ;;
     git) test_git ;;
     labels) test_labels ;;
+    environment) test_environment ;;
     deploy-key) test_deploy_key ;;
     dry-run) test_dry_run ;;
     org) test_org ;;
@@ -241,16 +301,16 @@ run_suite() {
 
 case "$suite" in
   all)
-    for name in syntax self legacy git labels deploy-key dry-run org reset pipe; do
+    for name in syntax self legacy git labels environment deploy-key dry-run org reset pipe; do
       run_suite "$name"
     done
     echo 'tests: ok'
     ;;
-  syntax|self|legacy|git|labels|deploy-key|dry-run|org|reset|pipe)
+  syntax|self|legacy|git|labels|environment|deploy-key|dry-run|org|reset|pipe)
     run_suite "$suite"
     ;;
   *)
-    printf 'usage: %s [all|syntax|self|legacy|git|labels|deploy-key|dry-run|org|reset|pipe]\n' "$0" >&2
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|environment|deploy-key|dry-run|org|reset|pipe]\n' "$0" >&2
     exit 2
     ;;
 esac
