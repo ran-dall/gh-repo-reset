@@ -176,6 +176,7 @@ gh_repo_reset_main() {
   if ! wait "$git_snapshot_pid"; then
     die "Git and metadata snapshot failed"
   fi
+  record_package_actions_access_followup "$BACKUP_DIR"
 
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
