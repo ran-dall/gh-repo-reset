@@ -10,7 +10,7 @@ test_syntax() {
     bash -n "$module"
   done
 
-  local expected=(core.sh snapshot.sh git.sh safety.sh restore.sh integrations.sh followup.sh main.sh)
+  local expected=(core.sh snapshot.sh git.sh report.sh safety.sh restore.sh integrations.sh followup.sh main.sh)
   local module
   for module in "${expected[@]}"; do
     [[ -f "lib/$module" ]]
@@ -36,6 +36,7 @@ test_self() {
 
 test_dry_run() {
   ./tests/mock-dry-run.sh
+  ./tests/mock-dry-run.sh --verbose
 }
 
 test_org() {
