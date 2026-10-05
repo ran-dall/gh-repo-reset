@@ -33,7 +33,10 @@ test_syntax() {
   [[ -f mise.toml ]]
   [[ -f gh-repo-reset.usage.kdl ]]
   [[ -x mise-tasks/test ]]
-  grep -q '^gh = "2.101.0"
+  grep -Fxq 'gh = "2.101.0"' mise.toml
+  grep -Fxq 'usage = "6.12.0"' mise.toml
+  grep -Fq 'uses: jdx/mise-action@v2' .github/workflows/check.yml
+  grep -Fq 'run: mise run check' .github/workflows/check.yml
   ! grep -q '// true' lib/snapshot.sh
   ! grep -q 'gh variable get' lib/snapshot.sh
   ! grep -q 'repos/\$REPO/labels/\$(urlencode' lib/snapshot.sh
@@ -358,7 +361,7 @@ test_snapshot_guard() (
 
   grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
   grep -q 'snapshot-status.tsv' ./lib/main.sh
-  grep -Fq "grep -q \\$'\\tfailed\\$'" ./lib/main.sh
+  grep -Fq "[[:space:]]failed$" ./lib/main.sh
   echo 'snapshot-guard: ok'
 )
 
