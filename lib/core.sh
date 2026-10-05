@@ -76,14 +76,20 @@ api ()
     gh api -H "X-GitHub-Api-Version: $API_VERSION" "$@"
 }
 
+record_restore_failure ()
+{
+    local label="$*";
+    if [[ -n "${BACKUP_DIR:-}" ]]; then
+        printf '%s\n' "$label" >> "$BACKUP_DIR/restore-failures.txt" 2>/dev/null || true;
+    fi
+}
+
 best_effort () 
 { 
     local label="$1";
     shift;
     if ! "$@"; then
-        if [[ -n "${BACKUP_DIR:-}" ]]; then
-            printf '%s\n' "$label" >> "$BACKUP_DIR/restore-failures.txt" 2>/dev/null || true;
-        fi;
+        record_restore_failure "$label";
         warn "$label failed; continuing.";
         return 0;
     fi
