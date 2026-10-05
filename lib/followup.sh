@@ -21,4 +21,7 @@ manual_followup ()
     if grep -q '^deploy_keys[[:space:]]' "$dir/manual-items.tsv"; then
         open_url "$base/keys";
     fi
+    if grep -q '^package_actions_access[[:space:]]' "$dir/manual-items.tsv"; then
+        open_url "https://github.com/orgs/${REPO%%/*}/packages";
+    fi
 }
