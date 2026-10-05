@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 #MISE description="Run gh-repo-reset tests"
 #USAGE flag "-s --suite <suite>" help="Select the test suite" default="all" {
-#USAGE   choices "all" "syntax" "self" "legacy" "git" "deploy-key" "dry-run" "org" "reset" "pipe"
+#USAGE   choices "all" "syntax" "self" "legacy" "git" "labels" "deploy-key" "dry-run" "org" "reset" "pipe"
 #USAGE }
 
 cd "${MISE_PROJECT_ROOT:-$(dirname "$0")/..}"
