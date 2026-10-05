@@ -48,10 +48,9 @@ snapshot_git_and_metadata ()
 
 snapshot_package_actions_access_hints ()
 {
-    local dir="$1" owner repo_name ref out matches package url registry_used=0;
+    local dir="$1" owner ref out matches package url registry_used=0;
     source "$dir/repo-state.sh";
     owner="${REPO%%/*}";
-    repo_name="${REPO#*/}";
     ref="refs/heads/$DEFAULT_BRANCH";
     out="$dir/package-actions-access.tsv";
     : > "$out";
@@ -59,7 +58,7 @@ snapshot_package_actions_access_hints ()
     # GitHub does not expose Manage Actions access grants through a supported
     # API. Preserve concrete package references from the default branch so the
     # user gets a targeted post-reset checklist instead of a generic warning.
-    matches="$(git -C "$dir/git.git" grep -I -h -Eio "ghcr\.io/${owner}/[A-Za-z0-9._/-]+" "$ref" -- 2>/dev/null || true)";
+    matches="$(git -C "$dir/git.git" grep -I -h -Eio "ghcr\\.io/${owner}/[A-Za-z0-9._/-]+" "$ref" -- 2>/dev/null || true)";
     while IFS= read -r package; do
         [[ -n "$package" ]] || continue;
         package="${package#ghcr.io/}";
@@ -103,105 +102,11 @@ snapshot_package_actions_access_hints ()
 
 record_package_actions_access_followup ()
 {
-    local dir="$1" type name url labels=() label;
+    local dir="$1" type name url label;
+    local -a labels=();
     [[ -s "$dir/package-actions-access.tsv" ]] || return 0;
 
-    while IFS=
-{ 
-    local dir="$1" tree commit login name email;
-    source "$dir/repo-state.sh";
-    if ! tree="$(git -C "$dir/git.git" rev-parse "refs/heads/$DEFAULT_BRANCH^{tree}" 2> /dev/null)"; then
-        warn "old repository has no readable '$DEFAULT_BRANCH' branch; creating an empty initial tree";
-        tree="$(git -C "$dir/git.git" mktree < /dev/null)";
-    fi;
-    name="${GIT_AUTHOR_NAME:-$(git config --global user.name 2> /dev/null || true)}";
-    email="${GIT_AUTHOR_EMAIL:-$(git config --global user.email 2> /dev/null || true)}";
-    login="$(api user --jq '.login // ""' 2> /dev/null || true)";
-    [[ -n "$name" ]] || name="${login:-gh-repo-reset}";
-    [[ -n "$email" ]] || email="${login:-gh-repo-reset}@users.noreply.github.com";
-    commit="$(printf 'Initial commit\n' | GIT_AUTHOR_NAME="$name" GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_NAME="$name" GIT_COMMITTER_EMAIL="$email" git -C "$dir/git.git" commit-tree "$tree")";
-    git -C "$dir/git.git" update-ref refs/gh-repo-reset/initial "$commit";
-    printf '%s\n' "$commit" > "$dir/initial-commit.txt";
-    vlog "Prepared fresh root commit $commit from $DEFAULT_BRANCH's current tree."
-}
-
-create_repository () 
-{ 
-    local visibility="$1" attempt;
-    case "$visibility" in 
-        public | private | internal)
-
-        ;;
-        *)
-            die "unsupported repository visibility: $visibility"
-        ;;
-    esac;
-    for attempt in 1 2 3 4 5;
-    do
-        if (( VERBOSE )); then
-            gh repo create "$REPO" "--$visibility" && return 0;
-        elif gh repo create "$REPO" "--$visibility" > /dev/null 2>&1; then
-            return 0;
-        fi;
-        (( attempt < 5 )) && sleep 2;
-    done;
-    die "could not recreate $REPO after deletion"
-}
-
-push_initial_commit () 
-{ 
-    local dir="$1" attempt existing expected err;
-    source "$dir/repo-state.sh";
-    gh auth setup-git > /dev/null;
-    git -C "$dir/git.git" remote set-url origin "https://github.com/$REPO.git";
-    # A mirror clone sets remote.origin.mirror=true, which makes Git reject
-    # a single-ref push ("--mirror can't be combined with refspecs").
-    git -C "$dir/git.git" config --unset-all remote.origin.mirror > /dev/null 2>&1 || true;
-
-    expected="$(cat "$dir/initial-commit.txt")";
-    existing="$(git -C "$dir/git.git" ls-remote origin "refs/heads/$DEFAULT_BRANCH" 2> /dev/null | awk 'NR==1 {print $1}' || true)";
-    if [[ -n "$existing" ]]; then
-        if [[ "$existing" == "$expected" ]]; then
-            vlog "$DEFAULT_BRANCH already points at the prepared initial commit; skipping push.";
-            return 0;
-        fi;
-        die "$REPO already has an unexpected $DEFAULT_BRANCH commit; refusing to overwrite it";
-    fi;
-
-    if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" == complete ]]; then
-        best_effort "restoring Git LFS objects" git -C "$dir/git.git" lfs push origin refs/gh-repo-reset/initial;
-    fi;
-
-    err="$dir/push.err";
-    for attempt in 1 2 3 4 5; do
-        : > "$err";
-        if (( VERBOSE )); then
-            if git -C "$dir/git.git" push origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" 2> >(tee "$err" >&2); then
-                rm -f "$err";
-                return 0;
-            fi;
-        elif git -C "$dir/git.git" push origin "refs/gh-repo-reset/initial:refs/heads/$DEFAULT_BRANCH" > /dev/null 2> "$err"; then
-            rm -f "$err";
-            return 0;
-        fi;
-        (( attempt < 5 )) && sleep 2;
-    done;
-
-    printf '[%s] Git push failed:\n' "$PROGRAM" >&2;
-    sed 's/^/  /' "$err" >&2 || true;
-    die "could not push the fresh initial commit; backup is still safe at $dir"
-}
-
-restore_wiki () 
-{ 
-    local dir="$1";
-    [[ -d "$dir/wiki.git" ]] || return 0;
-    if git -C "$dir/wiki.git" show-ref --quiet 2> /dev/null; then
-        git -C "$dir/wiki.git" remote set-url origin "https://github.com/$REPO.wiki.git" || return 0;
-        best_effort "restoring wiki Git history" git -C "$dir/wiki.git" push --mirror origin;
-    fi
-}
-\t' read -r type name url; do
+    while IFS=$'\t' read -r type name url; do
         [[ -n "$type" ]] || continue;
         if [[ "$name" == "<registry-used>" || "$name" == "<workflow-uses-packages>" ]]; then
             label="$type";
@@ -238,20 +143,20 @@ create_repository ()
     local visibility="$1" attempt;
     case "$visibility" in 
         public | private | internal)
-
-        ;;
+            ;;
         *)
             die "unsupported repository visibility: $visibility"
-        ;;
+            ;;
     esac;
-    for attempt in 1 2 3 4 5;
-    do
+    for attempt in 1 2 3 4 5; do
         if (( VERBOSE )); then
             gh repo create "$REPO" "--$visibility" && return 0;
         elif gh repo create "$REPO" "--$visibility" > /dev/null 2>&1; then
             return 0;
         fi;
-        (( attempt < 5 )) && sleep 2;
+        if (( attempt < 5 )); then
+            sleep 2;
+        fi;
     done;
     die "could not recreate $REPO after deletion"
 }
@@ -292,7 +197,9 @@ push_initial_commit ()
             rm -f "$err";
             return 0;
         fi;
-        (( attempt < 5 )) && sleep 2;
+        if (( attempt < 5 )); then
+            sleep 2;
+        fi;
     done;
 
     printf '[%s] Git push failed:\n' "$PROGRAM" >&2;
