@@ -84,6 +84,59 @@ restore_labels ()
     shopt -u nullglob
 }
 
+normalize_ssh_public_key ()
+{
+    awk 'NF >= 2 { print $1 " " $2; exit }' "$1"
+}
+
+deploy_key_attached_to_target ()
+{
+    local keyfile="$1" desired existing_key existing_normalized existing_readonly;
+    desired="$(normalize_ssh_public_key "$keyfile")";
+    [[ -n "$desired" ]] || return 1;
+
+    while IFS=$'\t' read -r existing_key existing_readonly; do
+        [[ -n "$existing_key" ]] || continue;
+        existing_normalized="$(printf '%s\n' "$existing_key" | awk 'NF >= 2 { print $1 " " $2; exit }')";
+        if [[ "$existing_normalized" == "$desired" ]]; then
+            return 0;
+        fi;
+    done < <(
+        gh repo deploy-key list -R "$REPO" --json key,readOnly \
+          --jq '.[] | [.key, (.readOnly|tostring)] | @tsv' 2>/dev/null || true
+    );
+
+    return 1
+}
+
+clear_deploy_key_manual_items ()
+{
+    local dir="$1" file="$1/manual-items.tsv" tmp;
+    [[ -f "$file" ]] || return 0;
+    tmp="$(mktemp)";
+    awk -F '\t' '$1 != "deploy_keys"' "$file" > "$tmp";
+    mv "$tmp" "$file"
+}
+
+reconcile_deploy_key_manual_items ()
+{
+    local dir="$1" keydir found=0 unresolved=0;
+    shopt -s nullglob;
+    for keydir in "$dir"/deploy-keys/*; do
+        [[ -f "$keydir/key.pub" ]] || continue;
+        found=1;
+        if ! deploy_key_attached_to_target "$keydir/key.pub"; then
+            unresolved=1;
+            break;
+        fi;
+    done;
+    shopt -u nullglob;
+
+    if (( found && ! unresolved )); then
+        clear_deploy_key_manual_items "$dir";
+    fi
+}
+
 restore_deploy_keys () 
 { 
     local dir="$1" keydir err label;
@@ -91,6 +144,12 @@ restore_deploy_keys ()
     for keydir in "$dir"/deploy-keys/*;
     do
         source "$keydir/state.sh";
+
+        if deploy_key_attached_to_target "$keydir/key.pub"; then
+            vlog "Deploy key already attached: $TITLE";
+            continue;
+        fi;
+
         err="$keydir/restore.err";
         label="restoring deploy key: $TITLE";
         if [[ "$(bool "$READ_ONLY")" == true ]]; then
@@ -107,6 +166,11 @@ restore_deploy_keys ()
         fi;
 
         if grep -qi 'key is already in use' "$err"; then
+            if deploy_key_attached_to_target "$keydir/key.pub"; then
+                vlog "Deploy key became attached during restore: $TITLE";
+                rm -f "$err";
+                continue;
+            fi;
             record_manual_item deploy_keys "deploy key '$TITLE' is already attached to another GitHub account or repository";
             warn "deploy key '$TITLE' could not be transferred because GitHub reports that key is already in use";
             rm -f "$err";
@@ -118,7 +182,9 @@ restore_deploy_keys ()
         (( VERBOSE )) && sed 's/^/  /' "$err" >&2 || true;
         rm -f "$err";
     done;
-    shopt -u nullglob
+    shopt -u nullglob;
+
+    reconcile_deploy_key_manual_items "$dir"
 }
 
 restore_variables () 
