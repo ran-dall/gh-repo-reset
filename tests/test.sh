@@ -309,6 +309,80 @@ STATE_EOF
   echo 'deploy-key: ok'
 )
 
+test_snapshot_guard() (
+  set -Eeuo pipefail
+  local tmp rc=0
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  BACKUP_DIR="$tmp"
+  : > "$tmp/snapshot-failures.txt"
+  : > "$tmp/snapshot-errors.log"
+  source ./lib/core.sh
+
+  fail_500() { printf 'HTTP 500: transient failure\n' >&2; return 1; }
+  fail_404() { printf 'HTTP 404: Not Found\n' >&2; return 1; }
+
+  snapshot_stream "labels" fail_500 >/dev/null
+  grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
+  grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
+
+  snapshot_capture_optional_404 "$tmp/pages.json" "Pages configuration" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/pages.json" ]]
+  grep -q 'snapshot-failures.txt' ./lib/main.sh
+  echo 'snapshot-guard: ok'
+)
+
+test_resume_journal() (
+  set -Eeuo pipefail
+  local tmp calls
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  SECRETS_DIR=""
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  source ./lib/core.sh
+  source ./lib/integrations.sh
+
+  create_once() { printf 'create\n' >> "$tmp/create.log"; }
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
+
+  mkdir -p "$tmp/webhooks/1"
+  cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=1234
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  printf '{"name":"web","active":true,"events":["push"],"config":{"url":"https://example.test/hook","content_type":"json","insecure_ssl":"0"}}\n' > "$tmp/webhooks/1/create.json"
+
+  api() {
+    local args=" $* "
+    if [[ "$args" == *" --method POST repos/owner/repo/hooks "* ]]; then
+      printf 'post\n' >> "$tmp/webhook-posts.log"
+      printf '9001\n'
+      return 0
+    fi
+    return 0
+  }
+
+  restore_webhooks "$tmp"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
+  echo 'resume-journal: ok'
+)
+
 test_dry_run() {
   ./tests/mock-dry-run.sh
   ./tests/mock-dry-run.sh --verbose
@@ -336,6 +410,8 @@ run_suite() {
     labels) test_labels ;;
     environment) test_environment ;;
     deploy-key) test_deploy_key ;;
+    snapshot-guard) test_snapshot_guard ;;
+    resume-journal) test_resume_journal ;;
     dry-run) test_dry_run ;;
     org) test_org ;;
     reset) test_reset ;;
