@@ -12,6 +12,7 @@ MODULES=(
   core.sh
   snapshot.sh
   git.sh
+  report.sh
   safety.sh
   restore.sh
   integrations.sh
