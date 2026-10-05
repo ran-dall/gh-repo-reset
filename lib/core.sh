@@ -138,6 +138,30 @@ snapshot_stream_optional_404 ()
     return 0
 }
 
+snapshot_capture_optional_pattern ()
+{
+    local outfile="$1" label="$2" pattern="$3";
+    shift 3;
+    if "$@" > "$outfile" 2> "$outfile.err"; then
+        rm -f "$outfile.err";
+        return 0;
+    fi;
+    rm -f "$outfile";
+    if grep -Eqi "$pattern" "$outfile.err"; then
+        rm -f "$outfile.err";
+        return 0;
+    fi;
+    record_snapshot_failure "$label" "$outfile.err";
+    rm -f "$outfile.err";
+    return 0
+}
+
+snapshot_json_optional_pattern ()
+{
+    local outfile="$1" endpoint="$2" jqexpr="$3" pattern="$4";
+    snapshot_capture_optional_pattern "$outfile" "$endpoint" "$pattern" api "$endpoint" --jq "$jqexpr"
+}
+
 snapshot_value ()
 {
     local label="$1" fallback="$2" err;
