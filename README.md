@@ -120,6 +120,8 @@ curl -fsSL https://raw.githubusercontent.com/ran-dall/gh-repo-reset/main/gh-repo
 
 For a pinned release/tagged run, replace `main` with `v0.0.0-1`. The streamed launcher then fetches its modules from the same pinned version by default. Set `GH_REPO_RESET_SOURCE_REF=main` only when intentionally testing unreleased code.
 
+Streamed bootstrap fetches the complete `lib/` module tree in one GraphQL request when GitHub exposes every blob intact, with bounded parallel REST as a compatibility fallback. Snapshot reads also run concurrently while the full Git mirror is being created. The default concurrency is 4; set `GH_REPO_RESET_JOBS=N` to tune it for a high-latency connection, but higher values can increase GitHub secondary-rate-limit pressure.
+
 Piped execution still reads destructive confirmation from `/dev/tty`.
 
 ## Local development
