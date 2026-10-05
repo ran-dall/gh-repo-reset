@@ -16,6 +16,17 @@ test_syntax() {
     [[ -f "lib/$module" ]]
   done
 
+  (
+    PROGRAM=gh-repo-reset-test
+    VERSION=v0.0.0-1
+    for module in "${expected[@]}"; do
+      # shellcheck source=/dev/null
+      source "lib/$module"
+    done
+    declare -F gh_repo_reset_main >/dev/null
+    declare -F build_restore_plan >/dev/null
+  )
+
   (( $(wc -l < ./gh-repo-reset) < 170 ))
   [[ ! -e Makefile ]]
   [[ -f mise.toml ]]
