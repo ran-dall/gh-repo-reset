@@ -218,6 +218,7 @@ test_environment() (
   trap 'rm -rf "$tmp"' EXIT
 
   PROGRAM=gh-repo-reset-test
+  API_VERSION=2026-03-10
   VERBOSE=0
   REPO=owner/repo
   BACKUP_DIR="$tmp"
