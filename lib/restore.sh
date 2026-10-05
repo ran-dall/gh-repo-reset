@@ -64,9 +64,15 @@ restore_repo_settings ()
     if [[ "${IMMUTABLE_RELEASES:-unknown}" == enabled ]]; then
         best_effort "restoring immutable releases" api --method PUT "repos/$REPO/immutable-releases" > /dev/null;
     fi;
+    local topics_payload="$dir/topics-restore.json" topic sep="";
+    printf '{"names":[' > "$topics_payload";
     while IFS= read -r topic; do
-        [[ -n "$topic" ]] && best_effort "restoring topic $topic" gh repo edit "$REPO" --add-topic "$topic";
-    done < "$dir/topics.txt"
+        [[ -n "$topic" ]] || continue;
+        printf '%s"%s"' "$sep" "$topic" >> "$topics_payload";
+        sep=",";
+    done < "$dir/topics.txt";
+    printf ']}\n' >> "$topics_payload";
+    best_effort "restoring repository topics" api --method PUT "repos/$REPO/topics" --input "$topics_payload" > /dev/null
 }
 
 restore_labels () 
