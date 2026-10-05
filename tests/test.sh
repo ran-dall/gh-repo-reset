@@ -117,9 +117,10 @@ test_git() (
 
 test_labels() (
   set -Eeuo pipefail
-  local tmp
+  local tmp test_gh_log
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
+  test_gh_log="$test_gh_log"
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
@@ -148,17 +149,17 @@ STATE_EOF
       printf 'extra\tffffff\tremove\n'
       return 0
     fi
-    printf '%s\n' "$*" >> "$tmp/gh.log"
+    printf '%s\n' "$*" >> "$test_gh_log"
     return 0
   }
 
   restore_labels "$tmp"
 
-  ! grep -Fq 'label create bug' "$tmp/gh.log"
-  grep -Fq 'label create custom -R owner/repo --force --color 123456 --description desired' "$tmp/gh.log"
-  grep -Fq 'label delete extra -R owner/repo --yes' "$tmp/gh.log"
-  ! grep -Fq 'label delete bug' "$tmp/gh.log"
-  ! grep -Fq 'label delete custom' "$tmp/gh.log"
+  ! grep -Fq 'label create bug' "$test_gh_log"
+  grep -Fq 'label create custom -R owner/repo --force --color 123456 --description desired' "$test_gh_log"
+  grep -Fq 'label delete extra -R owner/repo --yes' "$test_gh_log"
+  ! grep -Fq 'label delete bug' "$test_gh_log"
+  ! grep -Fq 'label delete custom' "$test_gh_log"
   echo 'labels: ok'
 )
 
