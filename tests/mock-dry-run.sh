@@ -108,11 +108,21 @@ OPEN_EOF
 chmod +x "$TMP/bin/xdg-open"
 export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_MODULE_DIR="$PWD/lib" MOCK_OPEN_LOG="$TMP/open.log"
 if [[ "${PIPE_MODE:-0}" == 1 ]]; then
-  cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" bash -s -- owner/repo --dry-run >"$TMP/out" 2>"$TMP/err"
+  cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" bash -s -- owner/repo --dry-run "$@" >"$TMP/out" 2>"$TMP/err"
 else
-  PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" ./gh-repo-reset owner/repo --dry-run >"$TMP/out" 2>"$TMP/err"
+  PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" ./gh-repo-reset owner/repo --dry-run "$@" >"$TMP/out" 2>"$TMP/err"
 fi
 grep -q 'Dry run complete' "$TMP/err"
+grep -q 'Detected:' "$TMP/err"
+grep -q 'Will restore' "$TMP/err"
+! grep -q 'Automatically handled when GitHub exposes enough information' "$TMP/err"
+if [[ " $* " == *" --verbose "* ]]; then
+  grep -q 'Prepared fresh root commit' "$TMP/err"
+  grep -q 'Plan \[auto\]' "$TMP/err"
+else
+  ! grep -q 'Prepared fresh root commit' "$TMP/err"
+  ! grep -q 'Plan \[auto\]' "$TMP/err"
+fi
 ! grep -q 'Deleting owner/repo' "$TMP/err"
 BACKUP="$(find "$TMP/tmp/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [[ -d "$BACKUP/git.git" && -f "$BACKUP/initial-commit.txt" && -f "$BACKUP/repo-state.sh" ]]
@@ -121,5 +131,4 @@ ROOT="$(cat "$BACKUP/initial-commit.txt")"
 [[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse "$ROOT^{tree}")" == "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse 'refs/heads/main^{tree}')" ]]
 grep -q -- '--app codespaces' "$TMP/gh.log"
 [[ ! -s "$TMP/open.log" ]]
-grep -q 'Dry run: browser pages were not opened.' "$TMP/err"
 echo 'mock dry-run: ok'
