@@ -238,15 +238,19 @@ snapshot_actions_policies ()
 
 snapshot_autolinks () 
 { 
-    local dir="$1" id idx=0 adir;
+    local dir="$1" payload idx=0 adir;
     mkdir -p "$dir/autolinks";
-    while IFS= read -r id; do
-        [[ -n "$id" ]] || continue;
+    while IFS= read -r payload; do
+        [[ -n "$payload" ]] || continue;
         idx=$((idx+1));
         adir="$dir/autolinks/$idx";
         mkdir -p "$adir";
-        snapshot_json "$adir/create.json" "repos/$REPO/autolinks/$id" '{key_prefix,url_template,is_alphanumeric}' || :;
-    done < <(api --paginate "repos/$REPO/autolinks?per_page=100" --jq '.[].id' 2> /dev/null || true)
+        printf '%s\n' "$payload" > "$adir/create.json";
+    done < <(
+        gh repo autolink list -R "$REPO" --json keyPrefix,urlTemplate,isAlphanumeric \
+          --jq '.[] | {key_prefix:.keyPrefix,url_template:.urlTemplate,is_alphanumeric:.isAlphanumeric} | @json' \
+          2> /dev/null || true
+    )
 }
 
 snapshot_rulesets () 
