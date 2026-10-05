@@ -231,11 +231,11 @@ snapshot_actions_settings ()
     a="$dir/actions";
     mkdir -p "$a";
     snapshot_json_optional_404 "$a/permissions.json" "repos/$REPO/actions/permissions" '{enabled,allowed_actions,sha_pinning_required:(.sha_pinning_required // false)}';
-    snapshot_json_optional_404 "$a/selected-actions.json" "repos/$REPO/actions/permissions/selected-actions" '{github_owned_allowed,verified_allowed,patterns_allowed:(.patterns_allowed // [])}';
+    snapshot_json_optional_pattern "$a/selected-actions.json" "repos/$REPO/actions/permissions/selected-actions" '{github_owned_allowed,verified_allowed,patterns_allowed:(.patterns_allowed // [])}' '404|not found|All actions and workflows are allowed on this repository|Conflict';
     snapshot_json_optional_404 "$a/workflow-permissions.json" "repos/$REPO/actions/permissions/workflow" '{default_workflow_permissions,can_approve_pull_request_reviews}';
     snapshot_json_optional_404 "$a/access.json" "repos/$REPO/actions/permissions/access" '{access_level}';
     snapshot_json_optional_404 "$a/fork-pr-workflows.json" "repos/$REPO/actions/permissions/fork-pr-workflows-private-repos" '{run_workflows_from_fork_pull_requests,send_write_tokens_to_workflows,send_secrets_and_variables,require_approval_for_fork_pr_workflows}';
-    snapshot_json_optional_404 "$a/fork-pr-contributor-approval.json" "repos/$REPO/actions/permissions/fork-pr-contributor-approval" '{approval_policy}';
+    snapshot_json_optional_pattern "$a/fork-pr-contributor-approval.json" "repos/$REPO/actions/permissions/fork-pr-contributor-approval" '{approval_policy}' '404|not found|Fork PR approval is not allowed for private repositories|Validation Failed';
     snapshot_json_optional_404 "$a/oidc-subject.json" "repos/$REPO/actions/oidc/customization/sub" '{use_default,include_claim_keys:(.include_claim_keys // []),use_immutable_subject:(.use_immutable_subject // false)}';
     snapshot_json_optional_404 "$a/artifact-retention.json" "repos/$REPO/actions/permissions/artifact-and-log-retention" '{days}';
     snapshot_api "$a/runners.json" "repos/$REPO/actions/runners?per_page=100"
@@ -314,16 +314,55 @@ snapshot_access ()
 
 snapshot_app_installations () 
 { 
-    local dir="$1" installation_id selection slug;
+    local dir="$1" installation_id selection slug list err repos_err;
     source "$dir/repo-state.sh";
     mkdir -p "$dir/app-installations";
     : > "$dir/app-installations/selected.tsv";
-    while IFS='	' read -r installation_id selection slug; do
-        [[ -n "$installation_id" && "$selection" == selected ]] || continue;
-        if snapshot_stream "GitHub App installation $installation_id repositories" api --paginate "user/installations/$installation_id/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\t%s\n' "$installation_id" "$slug" >> "$dir/app-installations/selected.tsv";
+    : > "$dir/app-installations/unverified.tsv";
+    rm -f "$dir/app-installations/unavailable" "$dir/app-installations/unavailable.err";
+
+    list="$dir/app-installations/installations.tsv";
+    err="$dir/app-installations/installations.err";
+
+    if [[ "${OWNER_TYPE:-User}" == Organization ]]; then
+        if ! api --paginate "orgs/$OWNER/installations?per_page=100" \
+          --jq '.installations[]? | [.id, .repository_selection, (.app_slug // "")] | @tsv' \
+          > "$list" 2> "$err"; then
+            : > "$dir/app-installations/unavailable";
+            mv "$err" "$dir/app-installations/unavailable.err";
+            rm -f "$list";
+            return 0;
         fi;
-    done < <(snapshot_stream "GitHub App installations" api --paginate "user/installations?per_page=100" --jq '.installations[]? | [.id, .repository_selection, (.app_slug // "")] | @tsv')
+    else
+        if ! api --paginate "user/installations?per_page=100" \
+          --jq '.installations[]? | [.id, .repository_selection, (.app_slug // "")] | @tsv' \
+          > "$list" 2> "$err"; then
+            : > "$dir/app-installations/unavailable";
+            mv "$err" "$dir/app-installations/unavailable.err";
+            rm -f "$list";
+            return 0;
+        fi;
+    fi;
+    rm -f "$err";
+
+    while IFS=$'\t' read -r installation_id selection slug; do
+        [[ -n "$installation_id" ]] || continue;
+        [[ "$selection" == selected ]] || continue;
+
+        repos_err="$dir/app-installations/$installation_id.err";
+        if api --paginate "user/installations/$installation_id/repositories?per_page=100" \
+          --jq '.repositories[]?.id' 2> "$repos_err" | grep -Fxq "$REPO_ID"; then
+            printf '%s\t%s\n' "$installation_id" "$slug" >> "$dir/app-installations/selected.tsv";
+            rm -f "$repos_err";
+            continue;
+        fi;
+
+        if [[ -s "$repos_err" ]]; then
+            printf '%s\t%s\n' "$installation_id" "$slug" >> "$dir/app-installations/unverified.tsv";
+        fi;
+        rm -f "$repos_err";
+    done < "$list";
+    rm -f "$list"
 }
 
 snapshot_org_bindings () 
