@@ -283,6 +283,7 @@ print_detected_summary ()
     n="$(count_child_dirs "$dir/webhooks")"; (( n )) && parts+=("$n webhooks");
     n=$(( $(count_nonempty_lines "$dir/access/collaborators.tsv") + $(count_nonempty_lines "$dir/access/invitations.tsv") + $(count_nonempty_lines "$dir/access/teams.tsv") )); (( n )) && parts+=("$n access entries");
     n="$(count_nonempty_lines "$dir/app-installations/selected.tsv")"; (( n )) && parts+=("$n app bindings");
+    n="$(count_nonempty_lines "$dir/package-actions-access.tsv")"; (( n )) && parts+=("$n package access candidates");
 
     ((${#parts[@]})) && log "Detected: $(join_semicolon "${parts[@]}")"
     return 0
