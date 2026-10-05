@@ -74,7 +74,9 @@ if [[ "$args" == *" api "* ]]; then
     *'.allow_auto_merge'*) printf 'false\n' ;;
     *'.delete_branch_on_merge'*) printf 'false\n' ;;
     *'.allow_update_branch'*) printf 'false\n' ;;
-    *'.allow_forking'*) printf 'true\n' ;;
+    *'.allow_forking'*) printf 'false\n' ;;
+    *'.has_downloads'*) printf 'false\n' ;;
+    *'.has_pull_requests'*) printf 'true\n' ;;
     *'.web_commit_signoff_required'*) printf 'false\n' ;;
     *'.is_template'*) printf 'false\n' ;;
     *'.archived'*) printf 'false\n' ;;
@@ -126,6 +128,11 @@ fi
 ! grep -q 'Deleting owner/repo' "$TMP/err"
 BACKUP="$(find "$TMP/tmp/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [[ -d "$BACKUP/git.git" && -f "$BACKUP/initial-commit.txt" && -f "$BACKUP/repo-state.sh" ]]
+# shellcheck disable=SC1090
+source "$BACKUP/repo-state.sh"
+[[ "$ALLOW_FORKING" == false ]]
+[[ "$HAS_DOWNLOADS" == false ]]
+[[ "$HAS_PULL_REQUESTS" == true ]]
 ROOT="$(cat "$BACKUP/initial-commit.txt")"
 [[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-list --parents -n1 "$ROOT" | awk '{print NF-1}')" -eq 0 ]]
 [[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse "$ROOT^{tree}")" == "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse 'refs/heads/main^{tree}')" ]]
