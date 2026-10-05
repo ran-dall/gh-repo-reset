@@ -57,24 +57,39 @@ save_repo_state ()
       ] | .[]
     ' >> "$state";
 
-    snapshot_json "$dir/secret-scanning-delegated-bypass-options.json" "repos/$REPO" 'if .security_and_analysis.secret_scanning_delegated_bypass_options == null then empty else {security_and_analysis:{secret_scanning_delegated_bypass_options:.security_and_analysis.secret_scanning_delegated_bypass_options}} end' || :;
+    snapshot_json_required "$dir/secret-scanning-delegated-bypass-options.json" "repos/$REPO" 'if .security_and_analysis.secret_scanning_delegated_bypass_options == null then empty else {security_and_analysis:{secret_scanning_delegated_bypass_options:.security_and_analysis.secret_scanning_delegated_bypass_options}} end';
 
-    if api "repos/$REPO/vulnerability-alerts" > /dev/null 2>&1; then
+    local probe rc;
+    probe="$dir/security-probe";
+
+    rc=0;
+    snapshot_capture_optional_404 "$probe" "vulnerability alerts" api "repos/$REPO/vulnerability-alerts" || rc=$?;
+    if (( rc == 0 )); then
         write_assignment "$state" VULNERABILITY_ALERTS enabled;
     else
-        write_assignment "$state" VULNERABILITY_ALERTS unknown;
+        write_assignment "$state" VULNERABILITY_ALERTS disabled;
     fi;
-    if api "repos/$REPO/automated-security-fixes" > /dev/null 2>&1; then
+    rm -f "$probe";
+
+    rc=0;
+    snapshot_capture_optional_404 "$probe" "Dependabot security updates" api "repos/$REPO/automated-security-fixes" || rc=$?;
+    if (( rc == 0 )); then
         write_assignment "$state" DEPENDABOT_SECURITY_UPDATES enabled;
     else
-        write_assignment "$state" DEPENDABOT_SECURITY_UPDATES unknown;
+        write_assignment "$state" DEPENDABOT_SECURITY_UPDATES disabled;
     fi;
-    write_assignment "$state" PRIVATE_VULNERABILITY_REPORTING "$(api "repos/$REPO/private-vulnerability-reporting" --jq 'if .enabled then "enabled" else "disabled" end' 2> /dev/null || printf unknown)";
-    if api "repos/$REPO/immutable-releases" > /dev/null 2>&1; then
+    rm -f "$probe";
+
+    write_assignment "$state" PRIVATE_VULNERABILITY_REPORTING "$(snapshot_value_optional_404 "private vulnerability reporting" unknown api "repos/$REPO/private-vulnerability-reporting" --jq 'if .enabled then "enabled" else "disabled" end')";
+
+    rc=0;
+    snapshot_capture_optional_404 "$probe" "immutable releases" api "repos/$REPO/immutable-releases" || rc=$?;
+    if (( rc == 0 )); then
         write_assignment "$state" IMMUTABLE_RELEASES enabled;
     else
-        write_assignment "$state" IMMUTABLE_RELEASES unknown;
+        write_assignment "$state" IMMUTABLE_RELEASES disabled;
     fi;
+    rm -f "$probe";
     snapshot_capture "$dir/topics.txt" "repository topics" api "repos/$REPO/topics" --jq '.names[]?'
 }
 
