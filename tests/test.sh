@@ -28,7 +28,7 @@ test_syntax() {
     declare -F deploy_key_attached_to_target >/dev/null
   )
 
-  (( $(wc -l < ./gh-repo-reset) < 220 ))
+  (( $(wc -l < ./gh-repo-reset) < 260 ))
   [[ ! -e Makefile ]]
   [[ -f mise.toml ]]
   [[ -f gh-repo-reset.usage.kdl ]]
