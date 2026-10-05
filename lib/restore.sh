@@ -264,19 +264,84 @@ restore_variables ()
     shopt -u nullglob
 }
 
+restore_environment_policy ()
+{
+    local envdir="$1" file endpoint fallback first_err fallback_err policy has_restricted_rules=0;
+    file="$envdir/environment-restore.json";
+    endpoint="repos/$REPO/environments/$ENV_KEY";
+
+    if [[ ! -s "$file" ]]; then
+        best_effort "creating environment $ENV_NAME" api --method PUT "$endpoint" > /dev/null;
+        return 0;
+    fi;
+
+    first_err="$envdir/environment-policy.err";
+    if api --method PUT "$endpoint" --input "$file" > /dev/null 2> "$first_err"; then
+        rm -f "$first_err";
+        return 0;
+    fi;
+
+    # Older snapshots always included wait/reviewer fields, even when those
+    # protection rules did not exist. Private repos on some GitHub plans reject
+    # those optional fields. Retry with only the branch-policy portion so the
+    # environment itself and deploy-branch behavior can still round-trip.
+    fallback="$envdir/environment-policy-fallback.json";
+    if grep -Eq '"protected_branches"[[:space:]]*:[[:space:]]*true' "$file"; then
+        policy='{"protected_branches":true,"custom_branch_policies":false}';
+    elif grep -Eq '"custom_branch_policies"[[:space:]]*:[[:space:]]*true' "$file"; then
+        policy='{"protected_branches":false,"custom_branch_policies":true}';
+    else
+        policy='null';
+    fi;
+    printf '{"deployment_branch_policy":%s}\n' "$policy" > "$fallback";
+
+    fallback_err="$envdir/environment-policy-fallback.err";
+    if api --method PUT "$endpoint" --input "$fallback" > /dev/null 2> "$fallback_err"; then
+        if [[ -f "$envdir/environment.json" ]] && grep -Eq '"type"[[:space:]]*:[[:space:]]*"(wait_timer|required_reviewers)"' "$envdir/environment.json"; then
+            has_restricted_rules=1;
+        fi;
+
+        if (( has_restricted_rules )); then
+            record_manual_item environment_policy "environment '$ENV_NAME' wait timer or required reviewers could not be restored automatically";
+            warn "environment '$ENV_NAME' restored without wait timer/required-reviewer protection rules";
+            if [[ -n "${BACKUP_DIR:-}" ]]; then
+                {
+                    printf '[environment policy %s: full policy rejected, fallback succeeded]\n' "$ENV_NAME";
+                    cat "$first_err";
+                    printf '\n';
+                } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
+            fi;
+        else
+            vlog "Environment '$ENV_NAME' restored via branch-policy-compatible fallback.";
+        fi;
+        rm -f "$first_err" "$fallback_err" "$fallback";
+        return 0;
+    fi;
+
+    record_restore_failure "restoring environment policy $ENV_NAME";
+    if [[ -n "${BACKUP_DIR:-}" ]]; then
+        {
+            printf '[restoring environment policy %s]\n' "$ENV_NAME";
+            cat "$first_err";
+            printf '[fallback]\n';
+            cat "$fallback_err";
+            printf '\n';
+        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
+    fi;
+    warn "restoring environment policy $ENV_NAME failed; continuing.";
+    rm -f "$first_err" "$fallback_err" "$fallback";
+    return 0
+}
+
 restore_environments () 
 { 
-    local dir="$1" envdir file name p_name p_type;
+    local dir="$1" envdir file name;
     shopt -s nullglob;
     for envdir in "$dir"/environments/*;
     do
         [[ -f "$envdir/state.sh" ]] || continue;
         source "$envdir/state.sh";
-        if [[ -s "$envdir/environment-restore.json" ]]; then
-            restore_json "restoring environment policy $ENV_NAME" PUT "repos/$REPO/environments/$ENV_KEY" "$envdir/environment-restore.json";
-        else
-            best_effort "creating environment $ENV_NAME" api --method PUT "repos/$REPO/environments/$ENV_KEY" > /dev/null;
-        fi;
+        restore_environment_policy "$envdir";
         for file in "$envdir"/variables/*;
         do
             [[ -f "$file" ]] || continue;
