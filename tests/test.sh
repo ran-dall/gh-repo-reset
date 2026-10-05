@@ -244,7 +244,7 @@ JSON_EOF
       if [[ "$prev" == --input ]]; then input="$x"; prev=""; continue; fi
       [[ "$x" == --input ]] && prev=--input
     done
-    if [[ "$args" == *" api --method PUT repos/owner/repo/environments/copilot "* ]]; then
+    if [[ "$args" == *" --method PUT repos/owner/repo/environments/copilot "* ]]; then
       if [[ -n "$input" && -f "$input" ]] && grep -q '"reviewers"' "$input"; then
         printf 'protection rules unavailable for private repository\n' >&2
         return 1
@@ -256,7 +256,7 @@ JSON_EOF
 
   restore_environments "$tmp"
 
-  [[ "$(grep -c 'api --method PUT repos/owner/repo/environments/copilot' "$tmp/gh.log")" -eq 2 ]]
+  [[ "$(grep -c '--method PUT repos/owner/repo/environments/copilot' "$tmp/gh.log")" -eq 2 ]]
   [[ ! -s "$tmp/restore-failures.txt" || ! -f "$tmp/restore-failures.txt" ]]
   [[ ! -f "$tmp/manual-items.tsv" || ! -s "$tmp/manual-items.tsv" ]]
 
