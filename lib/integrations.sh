@@ -89,12 +89,14 @@ restore_pages ()
     source "$dir/repo-state.sh";
     if [[ "$PAGES_BUILD_TYPE" == workflow ]]; then
         if ! api --method POST "repos/$REPO/pages" -f build_type=workflow > /dev/null 2>&1; then
+            record_restore_failure "workflow-based Pages site";
             warn "could not recreate workflow-based Pages site";
             return 0;
         fi;
     else
         if [[ -n "$PAGES_SOURCE_BRANCH" && "$PAGES_SOURCE_BRANCH" == "$DEFAULT_BRANCH" ]]; then
             if ! api --method POST "repos/$REPO/pages" -f "source[branch]=$PAGES_SOURCE_BRANCH" -f "source[path]=$PAGES_SOURCE_PATH" > /dev/null 2>&1; then
+                record_restore_failure "Pages site";
                 warn "could not recreate Pages site";
                 return 0;
             fi;
@@ -122,6 +124,7 @@ restore_webhooks ()
             continue;
         fi;
         if ! new_id="$(api --method POST "repos/$REPO/hooks" --input "$hdir/create.json" --jq '.id' 2> /dev/null)"; then
+            record_restore_failure "webhook $OLD_HOOK_ID";
             warn "restoring webhook $OLD_HOOK_ID failed";
             continue;
         fi;
@@ -148,6 +151,7 @@ restore_supplied_secrets ()
             [[ -f "$file" ]] || continue;
             name="$(basename "$file")";
             if ! gh secret set "$name" -R "$REPO" --app "$app" < "$file"; then
+                record_restore_failure "$app secret $name";
                 warn "restoring $app secret $name failed";
             fi;
         done;
@@ -162,6 +166,7 @@ restore_supplied_secrets ()
             [[ -f "$file" ]] || continue;
             name="$(basename "$file")";
             if ! gh secret set "$name" -R "$REPO" --env "$ENV_NAME" --app actions < "$file"; then
+                record_restore_failure "environment secret $ENV_NAME/$name";
                 warn "restoring environment secret $ENV_NAME/$name failed";
             fi;
         done;
