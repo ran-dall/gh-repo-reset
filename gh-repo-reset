@@ -117,19 +117,41 @@ fetch_remote_modules() {
     exit 1
   }
 
-  local tmp module endpoint ref ok
+  local tmp module endpoint ref ok first limit pid
+  local -a pids=()
 
   tmp="$(mktemp -d)"
+  limit="${GH_REPO_RESET_JOBS:-4}"
+  [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4
+  first="${MODULES[0]}"
+
   while IFS= read -r ref; do
     ok=1
     rm -f "$tmp"/*.sh
-    for module in "${MODULES[@]}"; do
+
+    # Probe the ref once. This keeps the unpublished-version fallback cheap
+    # instead of launching a full batch against a ref that does not exist.
+    endpoint="repos/$SOURCE_REPO/contents/lib/$first?ref=$ref"
+    if ! gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$first" 2>/dev/null; then
+      continue
+    fi
+
+    pids=()
+    for module in "${MODULES[@]:1}"; do
       endpoint="repos/$SOURCE_REPO/contents/lib/$module?ref=$ref"
-      if ! gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$module" 2>/dev/null; then
-        ok=0
-        break
+      gh api "$endpoint" -H 'Accept: application/vnd.github.raw+json' >"$tmp/$module" 2>/dev/null &
+      pids+=("$!")
+      if (( ${#pids[@]} >= limit )); then
+        for pid in "${pids[@]}"; do
+          wait "$pid" || ok=0
+        done
+        pids=()
       fi
     done
+    for pid in "${pids[@]}"; do
+      wait "$pid" || ok=0
+    done
+
     if (( ok )); then
       if [[ "$ref" != "$SOURCE_REF" ]]; then
         printf '[%s] WARNING: %s is not published yet; bootstrapping modules from %s.\n' "$PROGRAM" "$SOURCE_REF" "$ref" >&2
