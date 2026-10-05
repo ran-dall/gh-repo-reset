@@ -12,7 +12,7 @@ file_has_secret_names ()
 
 has_irreplaceable_metadata () 
 { 
-    local found=0 first stars forks is_fork f secret_count;
+    local found=0 first stars forks is_fork f secret_count webhook_count;
     : > "$BACKUP_DIR/manual-items.tsv";
     first="$(api "repos/$REPO/issues?state=all&per_page=1" --jq '.[0].number // empty' 2> /dev/null || true)";
     if [[ -n "$first" ]]; then
@@ -39,21 +39,16 @@ has_irreplaceable_metadata ()
         record_manual_item identity "fork-network identity is not recreated";
         found=1;
     fi;
-    if file_has_secret_names; then
-        secret_count="$(count_secret_names "$BACKUP_DIR")";
+    secret_count="$(count_missing_secret_values "$BACKUP_DIR")";
+    if (( secret_count > 0 )); then
         record_manual_item secrets "$secret_count stored secret value(s) must be supplied or re-entered";
         found=1;
     fi;
-    for f in "$BACKUP_DIR"/webhooks/*/state.sh;
-    do
-        [[ -f "$f" ]] || continue;
-        source "$f";
-        if [[ "${HOOK_SECRET_STATUS:-unknown}" != unsigned ]]; then
-            record_manual_item webhooks "signed webhook secret(s) must be supplied or re-entered";
-            found=1;
-            break;
-        fi;
-    done;
+    webhook_count="$(count_unrestorable_signed_webhooks "$BACKUP_DIR")";
+    if (( webhook_count > 0 )); then
+        record_manual_item webhooks "$webhook_count signed webhook secret(s) must be supplied or re-entered";
+        found=1;
+    fi;
     if [[ -s "$BACKUP_DIR/actions/runners.json" ]] && grep -q '"total_count"[[:space:]]*:[[:space:]]*[1-9]' "$BACKUP_DIR/actions/runners.json" 2> /dev/null; then
         record_manual_item runners "self-hosted runner registrations must be reauthorized";
         found=1;
