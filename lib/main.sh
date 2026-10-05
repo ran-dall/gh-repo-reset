@@ -181,8 +181,16 @@ gh_repo_reset_main() {
   fi
 
   if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
-    warn "Snapshot is incomplete; refusing to continue. See $BACKUP_DIR/snapshot-failures.txt"
-    [[ -s "$BACKUP_DIR/snapshot-errors.log" ]] && warn "Snapshot API errors: $BACKUP_DIR/snapshot-errors.log"
+    warn "Snapshot is incomplete; refusing to continue."
+    while IFS= read -r snapshot_failure; do
+      [[ -n "$snapshot_failure" ]] || continue
+      warn "Snapshot failure: $snapshot_failure"
+    done < "$BACKUP_DIR/snapshot-failures.txt"
+    if [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
+      warn "Snapshot API errors:"
+      sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
+    fi
+    warn "Snapshot kept at $BACKUP_DIR"
     return 5
   fi
 
