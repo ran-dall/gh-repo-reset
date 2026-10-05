@@ -63,7 +63,7 @@ snapshot_package_actions_access_hints ()
     while IFS= read -r package; do
         [[ -n "$package" ]] || continue;
         package="${package#ghcr.io/}";
-        package="${package#${owner}/}";
+        package="${package#*/}";
         [[ -n "$package" ]] || continue;
         url="https://github.com/orgs/$owner/packages/container/package/$package/settings";
         printf 'container\t%s\t%s\n' "$package" "$url" >> "$out";
@@ -75,7 +75,7 @@ snapshot_package_actions_access_hints ()
         while IFS= read -r package; do
             [[ -n "$package" ]] || continue;
             package="${package#@}";
-            package="${package#${owner}/}";
+            package="${package#*/}";
             [[ -n "$package" ]] || continue;
             url="https://github.com/orgs/$owner/packages/npm/package/$package/settings";
             printf 'npm\t%s\t%s\n' "$package" "$url" >> "$out";
