@@ -120,6 +120,55 @@ snapshot_stream ()
     return 0
 }
 
+snapshot_stream_optional_404 ()
+{
+    local label="$1" err;
+    shift;
+    err="$(mktemp)";
+    if "$@" 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    if snapshot_error_is_404 "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    record_snapshot_failure "$label" "$err";
+    rm -f "$err";
+    return 0
+}
+
+snapshot_value ()
+{
+    local label="$1" fallback="$2" err;
+    shift 2;
+    err="$(mktemp)";
+    if "$@" 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    record_snapshot_failure "$label" "$err";
+    rm -f "$err";
+    printf '%s' "$fallback";
+    return 0
+}
+
+snapshot_value_optional_404 ()
+{
+    local label="$1" fallback="$2" err;
+    shift 2;
+    err="$(mktemp)";
+    if "$@" 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    if ! snapshot_error_is_404 "$err"; then
+        record_snapshot_failure "$label" "$err";
+    fi;
+    rm -f "$err";
+    printf '%s' "$fallback";
+    return 0
+}
 snapshot_capture ()
 {
     local outfile="$1" label="$2";
