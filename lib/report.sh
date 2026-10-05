@@ -132,7 +132,7 @@ plan_add ()
 build_restore_plan ()
 {
     local dir="$1" plan="$1/restore-plan.tsv";
-    local labels keys vars env_vars envs rules protections autolinks hooks access apps org_bindings;
+    local labels keys vars env_vars envs action_policies rules protections autolinks hooks access apps org_bindings;
     local enabled=() detail f;
     source "$dir/repo-state.sh";
     : > "$plan";
@@ -154,6 +154,7 @@ build_restore_plan ()
     env_vars="$(count_environment_variables "$dir")";
     vars=$((vars+env_vars));
     envs="$(count_child_dirs "$dir/environments")";
+    action_policies="$(count_child_dirs "$dir/actions-policies")";
     rules="$(count_child_dirs "$dir/rulesets")";
     protections="$(count_child_dirs "$dir/branch-protection")";
     autolinks="$(count_child_dirs "$dir/autolinks")";
@@ -175,7 +176,10 @@ build_restore_plan ()
     (( keys )) && plan_add "$plan" auto "deploy keys" "$keys";
     (( vars )) && plan_add "$plan" auto "variables" "$vars";
     (( envs )) && plan_add "$plan" auto "environments" "$envs";
-    [[ -d "$dir/actions" ]] && plan_add "$plan" auto "Actions configuration" "captured";
+    if find "$dir/actions" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | grep -q .; then
+        plan_add "$plan" auto "Actions configuration" "captured";
+    fi;
+    (( action_policies )) && plan_add "$plan" auto "Actions policies" "$action_policies";
     (( rules )) && plan_add "$plan" auto "rulesets" "$rules";
     (( protections )) && plan_add "$plan" auto "protected branches" "$protections";
     (( access )) && plan_add "$plan" auto "repository access entries" "$access";
@@ -212,11 +216,14 @@ print_detected_summary ()
     ((${#enabled[@]})) && parts+=("$(IFS=', '; echo "${enabled[*]}")");
 
     n="$(count_child_dirs "$dir/labels")"; (( n )) && parts+=("$n labels");
+    n="$(count_child_dirs "$dir/deploy-keys")"; (( n )) && parts+=("$n deploy keys");
     n="$(count_child_dirs "$dir/environments")"; (( n )) && parts+=("$n environments");
     n=$(( $(count_child_files "$dir/variables/repository") + $(count_environment_variables "$dir") )); (( n )) && parts+=("$n variables");
     n="$(count_child_dirs "$dir/rulesets")"; (( n )) && parts+=("$n rulesets");
     n="$(count_child_dirs "$dir/branch-protection")"; (( n )) && parts+=("$n protected branches");
     n="$(count_child_dirs "$dir/webhooks")"; (( n )) && parts+=("$n webhooks");
+    n=$(( $(count_nonempty_lines "$dir/access/collaborators.tsv") + $(count_nonempty_lines "$dir/access/invitations.tsv") + $(count_nonempty_lines "$dir/access/teams.tsv") )); (( n )) && parts+=("$n access entries");
+    n="$(count_nonempty_lines "$dir/app-installations/selected.tsv")"; (( n )) && parts+=("$n app bindings");
 
     ((${#parts[@]})) && log "Detected: $(join_semicolon "${parts[@]}")"
     return 0
