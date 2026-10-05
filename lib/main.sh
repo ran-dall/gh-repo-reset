@@ -3,6 +3,7 @@
 API_VERSION="2026-03-10"
 REPO=""
 BACKUP_ROOT="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/gh-repo-reset"
+BACKUP_ROOT_EXPLICIT=0
 YES=0
 ALLOW_METADATA_LOSS=0
 NO_OPEN=0
@@ -29,7 +30,7 @@ gh_repo_reset_main() {
     case "$1" in
       --yes) YES=1 ;;
       --allow-metadata-loss) ALLOW_METADATA_LOSS=1 ;;
-      --backup-dir) shift; (($#)) || die "--backup-dir requires a value"; BACKUP_ROOT="$1" ;;
+      --backup-dir) shift; (($#)) || die "--backup-dir requires a value"; BACKUP_ROOT="$1"; BACKUP_ROOT_EXPLICIT=1 ;;
       --secrets-dir) shift; (($#)) || die "--secrets-dir requires a value"; SECRETS_DIR="$1" ;;
       --no-open) NO_OPEN=1 ;;
       --dry-run) DRY_RUN=1 ;;
@@ -49,6 +50,10 @@ gh_repo_reset_main() {
   [[ "$REPO" == */* ]] || die "repository must be OWNER/REPO: $REPO"
   api "repos/$REPO" >/dev/null || die "cannot read $REPO with current gh authentication"
 
+  if (( DRY_RUN && ! BACKUP_ROOT_EXPLICIT )); then
+    BACKUP_ROOT="${TMPDIR:-/tmp}/gh-repo-reset"
+  fi
+
   TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
   SAFE_REPO="${REPO//\//__}"
   BACKUP_DIR="$BACKUP_ROOT/$SAFE_REPO/$TIMESTAMP"
@@ -57,7 +62,11 @@ gh_repo_reset_main() {
 
   log "Version:    $VERSION"
   log "Repository: $REPO"
-  log "Backup:     $BACKUP_DIR"
+  if (( DRY_RUN )); then
+    log "Snapshot:   $BACKUP_DIR"
+  else
+    log "Backup:     $BACKUP_DIR"
+  fi
   log "Snapshotting GitHub state and Git history..."
 
   save_repo_state "$BACKUP_DIR"

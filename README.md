@@ -15,7 +15,7 @@ Version is intentionally pinned to **`v0.0.0-1`**.
 - GitHub CLI: `gh`
 - `gh` authenticated with admin/owner access to the target repository
 - `git-lfs` optional but strongly recommended when the repository uses Git LFS
-- `xdg-open` optional; it opens GitHub settings pages that need manual follow-up
+- `xdg-open` optional; after a real reset it opens GitHub settings pages that need manual follow-up
 
 Repository deletion requires the `delete_repo` scope:
 
@@ -166,12 +166,18 @@ For backward compatibility, repository secrets are also accepted from `my-secret
 
 ## Backups
 
-Backups default to:
+Dry runs use temporary storage by default:
+
+```text
+${TMPDIR:-/tmp}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
+```
+
+A real destructive run uses persistent state storage:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
 ```
 
-`git.git/` is the full old Git mirror. Keep the backup until the recreated repository, integrations, packages, workflows, and deployments have all been verified.
+Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old Git mirror; keep that safety backup until the recreated repository, integrations, packages, workflows, and deployments have all been verified.
 
 Easy peasy lemon squeezy — with a safety backup first.

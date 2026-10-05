@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/state" "$TMP/source"
+mkdir -p "$TMP/bin" "$TMP/state" "$TMP/tmp" "$TMP/source"
 /usr/bin/git -C "$TMP/source" init -b main >/dev/null
 printf 'one\n' >"$TMP/source/file.txt"
 /usr/bin/git -C "$TMP/source" add file.txt
@@ -100,18 +100,26 @@ if [[ "${1:-}" == lfs ]]; then exit 1; fi
 exec /usr/bin/git "$@"
 GIT_EOF
 chmod +x "$TMP/bin/git"
-export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_MODULE_DIR="$PWD/lib"
+cat >"$TMP/bin/xdg-open" <<'OPEN_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\n' "$*" >>"$MOCK_OPEN_LOG"
+OPEN_EOF
+chmod +x "$TMP/bin/xdg-open"
+export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_MODULE_DIR="$PWD/lib" MOCK_OPEN_LOG="$TMP/open.log"
 if [[ "${PIPE_MODE:-0}" == 1 ]]; then
-  cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" bash -s -- owner/repo --dry-run --no-open >"$TMP/out" 2>"$TMP/err"
+  cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" bash -s -- owner/repo --dry-run >"$TMP/out" 2>"$TMP/err"
 else
-  PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" ./gh-repo-reset owner/repo --dry-run --no-open >"$TMP/out" 2>"$TMP/err"
+  PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" ./gh-repo-reset owner/repo --dry-run >"$TMP/out" 2>"$TMP/err"
 fi
 grep -q 'Dry run complete' "$TMP/err"
 ! grep -q 'Deleting owner/repo' "$TMP/err"
-BACKUP="$(find "$TMP/state/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
+BACKUP="$(find "$TMP/tmp/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [[ -d "$BACKUP/git.git" && -f "$BACKUP/initial-commit.txt" && -f "$BACKUP/repo-state.sh" ]]
 ROOT="$(cat "$BACKUP/initial-commit.txt")"
 [[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-list --parents -n1 "$ROOT" | awk '{print NF-1}')" -eq 0 ]]
 [[ "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse "$ROOT^{tree}")" == "$(/usr/bin/git -C "$BACKUP/git.git" rev-parse 'refs/heads/main^{tree}')" ]]
 grep -q -- '--app codespaces' "$TMP/gh.log"
+[[ ! -s "$TMP/open.log" ]]
+grep -q 'Dry run: browser pages were not opened.' "$TMP/err"
 echo 'mock dry-run: ok'

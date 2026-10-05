@@ -2,7 +2,7 @@
 
 manual_followup () 
 { 
-    local dir="$1" base="https://github.com/$REPO/settings" owner owner_type package_url installations_url;
+    local dir="$1" base="https://github.com/$REPO/settings" owner owner_type package_url installations_url backup_label;
     owner="${REPO%%/*}";
     owner_type="$(api "users/$owner" --jq '.type // "User"' 2> /dev/null || printf User)";
     if [[ "$owner_type" == Organization ]]; then
@@ -13,8 +13,10 @@ manual_followup ()
         installations_url="https://github.com/settings/installations";
     fi;
     if (( DRY_RUN )); then
+        backup_label="Dry-run snapshot";
         printf '\n[%s] Dry-run follow-up preview.\n' "$PROGRAM" 1>&2;
     else
+        backup_label="Safety backup";
         printf '\n[%s] Automatic restore pass complete.\n' "$PROGRAM" 1>&2;
     fi;
     cat 1>&2 <<MANUAL_EOF
@@ -45,9 +47,14 @@ manual_followup ()
 The tool does NOT export your gh authentication token/PAT, private deploy keys, GITHUB_TOKEN,
 or runner registration tokens. Those are credentials, not readable repository configuration.
 
-Safety backup: $dir
+${backup_label}: $dir
 Old Git history: $dir/git.git
 MANUAL_EOF
+
+    if (( DRY_RUN )); then
+        printf '[%s] Dry run: browser pages were not opened.\n' "$PROGRAM" 1>&2;
+        return 0;
+    fi;
 
     open_url "$base/secrets/actions";
     open_url "$base/environments";
