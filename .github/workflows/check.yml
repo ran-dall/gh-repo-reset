@@ -13,5 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run test suite
-        run: ./tests/test.sh all
+      - uses: jdx/mise-action@v2
+      - name: Run check
+        run: mise run check
