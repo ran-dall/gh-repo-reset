@@ -256,7 +256,7 @@ JSON_EOF
 
   restore_environments "$tmp"
 
-  [[ "$(grep -c '--method PUT repos/owner/repo/environments/copilot' "$tmp/gh.log")" -eq 2 ]]
+  [[ "$(grep -c -- '--method PUT repos/owner/repo/environments/copilot' "$tmp/gh.log")" -eq 2 ]]
   [[ ! -s "$tmp/restore-failures.txt" || ! -f "$tmp/restore-failures.txt" ]]
   [[ ! -f "$tmp/manual-items.tsv" || ! -s "$tmp/manual-items.tsv" ]]
 
