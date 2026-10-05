@@ -62,12 +62,12 @@ It cannot automatically recover:
 - webhook signing secrets
 - self-hosted runner registration/authentication tokens
 - GitHub App/OAuth grants tied to the old repository identity
-- package/container repository authorization tied to the old repository identity
+- GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so the tool scans the default branch for likely GitHub Packages dependencies and reports package-access candidates for manual review
 - external cloud/OIDC trust that embeds the old GitHub repository ID
 
 It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, or old commit history. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
 
-When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available.
+When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants.
 
 ## Layout
 
