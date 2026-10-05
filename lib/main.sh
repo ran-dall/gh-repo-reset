@@ -133,6 +133,7 @@ gh_repo_reset_main() {
   BACKUP_DIR="$BACKUP_ROOT/$SAFE_REPO/$TIMESTAMP"
   mkdir -p "$BACKUP_DIR"
   chmod 700 "$BACKUP_DIR" || true
+  : > "$BACKUP_DIR/snapshot-status.tsv"
   : > "$BACKUP_DIR/snapshot-failures.txt"
   : > "$BACKUP_DIR/snapshot-errors.log"
 
@@ -176,16 +177,278 @@ gh_repo_reset_main() {
     snapshot_pages \
     snapshot_webhooks
 
-  if ! wait "$git_snapshot_pid"; then
+  if wait "$git_snapshot_pid"; then
+    record_snapshot_status "Git and metadata mirror" captured
+  else
+    record_snapshot_failure "Git and metadata mirror"
     die "Git and metadata snapshot failed"
   fi
 
-  if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+  if [[ ! -s "$BACKUP_DIR/snapshot-status.tsv" ]]; then
+    warn "Snapshot status manifest is empty; refusing to continue."
+    warn "Snapshot kept at $BACKUP_DIR"
+    return 5
+  fi
+
+  if grep -Evq 
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+^[^\t]+\t(captured|absent|failed)
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+ "$BACKUP_DIR/snapshot-status.tsv"; then
+    warn "Snapshot status manifest is malformed; refusing to continue."
+    warn "Snapshot kept at $BACKUP_DIR"
+    return 5
+  fi
+
+  if grep -q 
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+\tfailed
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+ "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
     warn "Snapshot is incomplete; refusing to continue."
-    while IFS= read -r snapshot_failure; do
-      [[ -n "$snapshot_failure" ]] || continue
-      warn "Snapshot failure: $snapshot_failure"
-    done < "$BACKUP_DIR/snapshot-failures.txt"
+    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+      while IFS= read -r snapshot_failure; do
+        [[ -n "$snapshot_failure" ]] || continue
+        warn "Snapshot failure: $snapshot_failure"
+      done < "$BACKUP_DIR/snapshot-failures.txt"
+    else
+      while IFS=
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  log "Deleting and recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+\t' read -r snapshot_label snapshot_state; do
+        [[ "$snapshot_state" == failed ]] || continue
+        warn "Snapshot failure: $snapshot_label"
+      done < "$BACKUP_DIR/snapshot-status.tsv"
+    fi
     if [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
       warn "Snapshot API errors:"
       sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
