@@ -363,7 +363,7 @@ restore_environment_branch_policies ()
         [[ -f "$envdir/deployment-branch-policies.tsv" ]] || continue;
         while IFS='	' read -r p_name p_type; do
             [[ -n "$p_name" ]] || continue;
-            best_effort "restoring deployment policy $ENV_NAME/$p_name" api --method POST "repos/$REPO/environments/$ENV_KEY/deployment-branch-policies" -f "name=$p_name" -f "type=${p_type:-branch}" > /dev/null;
+            restore_once "environment-branch-policy:$ENV_KEY:$(urlencode "${p_type:-branch}"):$(urlencode "$p_name")" "restoring deployment policy $ENV_NAME/$p_name" api --method POST "repos/$REPO/environments/$ENV_KEY/deployment-branch-policies" -f "name=$p_name" -f "type=${p_type:-branch}";
         done < "$envdir/deployment-branch-policies.tsv";
     done;
     shopt -u nullglob
@@ -379,10 +379,7 @@ restore_environment_custom_protection_rules ()
         source "$envdir/state.sh";
         while IFS='	' read -r integration_id app_slug; do
             [[ -n "$integration_id" ]] || continue;
-            if ! api --method POST "repos/$REPO/environments/$ENV_KEY/deployment_protection_rules" -F "integration_id=$integration_id" > /dev/null 2>&1; then
-                record_restore_failure "custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME";
-            warn "could not restore custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME; its GitHub App may need re-authorization";
-            fi;
+            restore_once "environment-protection-rule:$ENV_KEY:$integration_id" "custom deployment protection rule ${app_slug:-$integration_id} for $ENV_NAME" api --method POST "repos/$REPO/environments/$ENV_KEY/deployment_protection_rules" -F "integration_id=$integration_id";
         done < "$envdir/custom-deployment-protection-rules.tsv";
     done;
     shopt -u nullglob
@@ -408,20 +405,22 @@ restore_actions_policies ()
     shopt -s nullglob;
     for pdir in "$dir"/actions-policies/*;
     do
-        [[ -s "$pdir/create.json" ]] || continue;
-        restore_json "restoring repository Actions policy" POST "repos/$REPO/actions/policies" "$pdir/create.json";
+        [[ -s "$pdir/create.json" && -f "$pdir/state.sh" ]] || continue;
+        source "$pdir/state.sh";
+        restore_json_once "actions-policy:$OLD_ACTIONS_POLICY_ID" "restoring repository Actions policy" POST "repos/$REPO/actions/policies" "$pdir/create.json";
     done;
     shopt -u nullglob
 }
 
 restore_autolinks () 
 { 
-    local dir="$1" adir;
+    local dir="$1" adir key;
     shopt -s nullglob;
     for adir in "$dir"/autolinks/*;
     do
         [[ -s "$adir/create.json" ]] || continue;
-        restore_json "restoring autolink reference" POST "repos/$REPO/autolinks" "$adir/create.json";
+        key="$(basename "$adir")";
+        restore_json_once "autolink:$key" "restoring autolink reference" POST "repos/$REPO/autolinks" "$adir/create.json";
     done;
     shopt -u nullglob
 }
@@ -432,8 +431,9 @@ restore_rulesets ()
     shopt -s nullglob;
     for rdir in "$dir"/rulesets/*;
     do
-        [[ -s "$rdir/create.json" ]] || continue;
-        restore_json "restoring repository ruleset" POST "repos/$REPO/rulesets" "$rdir/create.json";
+        [[ -s "$rdir/create.json" && -f "$rdir/state.sh" ]] || continue;
+        source "$rdir/state.sh";
+        restore_json_once "ruleset:$OLD_RULESET_ID" "restoring repository ruleset" POST "repos/$REPO/rulesets" "$rdir/create.json";
     done;
     shopt -u nullglob
 }
@@ -454,7 +454,7 @@ restore_branch_protection ()
         enc="$(urlencode "$BRANCH_NAME")";
         restore_json "restoring branch protection for $BRANCH_NAME" PUT "repos/$REPO/branches/$enc/protection" "$bdir/protection.json";
         if [[ "$(bool "${REQUIRED_SIGNATURES:-false}")" == true ]]; then
-            best_effort "restoring required signatures for $BRANCH_NAME" api --method POST "repos/$REPO/branches/$enc/protection/required_signatures" > /dev/null;
+            restore_once "required-signatures:$enc" "restoring required signatures for $BRANCH_NAME" api --method POST "repos/$REPO/branches/$enc/protection/required_signatures";
         fi;
     done;
     shopt -u nullglob
