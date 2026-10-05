@@ -53,6 +53,59 @@ has_irreplaceable_metadata ()
         record_manual_item runners "self-hosted runner registrations must be reauthorized";
         found=1;
     fi;
+    if [[ -f "$BACKUP_DIR/app-installations/unavailable" ]]; then
+        record_manual_item app_installations "GitHub App installations could not be inspected with the current gh token; review repository access after recreation";
+        found=1;
+    elif [[ -s "$BACKUP_DIR/app-installations/unverified.tsv" ]]; then
+        local app_id app_slug app_labels=();
+        while IFS=    for f in "$BACKUP_DIR"/branch-protection/*/state.sh;
+    do
+        [[ -f "$f" ]] || continue;
+        source "$f";
+        source "$BACKUP_DIR/repo-state.sh";
+        if [[ "$BRANCH_NAME" != "$DEFAULT_BRANCH" ]]; then
+            record_manual_item branches "protected branch '$BRANCH_NAME' will not be recreated";
+            found=1;
+        fi;
+    done;
+    source "$BACKUP_DIR/repo-state.sh";
+    if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" != complete ]]; then
+        record_manual_item lfs "Git LFS objects were not safely backed up";
+        found=1;
+    fi;
+    if [[ -f "$BACKUP_DIR/pages-state.sh" ]]; then
+        source "$BACKUP_DIR/pages-state.sh";
+        source "$BACKUP_DIR/repo-state.sh";
+        if [[ "${PAGES_BUILD_TYPE:-legacy}" != workflow && -n "${PAGES_SOURCE_BRANCH:-}" && "$PAGES_SOURCE_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+            record_manual_item pages "Pages source '$PAGES_SOURCE_BRANCH' will not be recreated";
+            found=1;
+        fi;
+    fi;
+    (( found ))
+}
+
+confirm_reset () 
+{ 
+    (( YES )) && return 0;
+    local typed;
+    printf '\nThis will DELETE and RECREATE %s with ONE fresh initial commit.\n' "$REPO" 1>&2;
+    printf 'Type the full repository name (%s) to continue: ' "$REPO" 1>&2;
+    if [[ -r /dev/tty ]]; then
+        IFS= read -r typed < /dev/tty;
+    else
+        die "no interactive TTY; rerun interactively or pass --yes deliberately";
+    fi;
+    [[ "$typed" == "$REPO" ]] || die "confirmation did not match"
+}
+\t' read -r app_id app_slug; do
+            [[ -n "$app_id" ]] || continue;
+            app_labels+=("${app_slug:-installation-$app_id}");
+        done < "$BACKUP_DIR/app-installations/unverified.tsv";
+        if ((${#app_labels[@]})); then
+            record_manual_item app_installations "selected GitHub App repository access could not be verified for: $(join_comma "${app_labels[@]}")";
+            found=1;
+        fi;
+    fi;
     for f in "$BACKUP_DIR"/branch-protection/*/state.sh;
     do
         [[ -f "$f" ]] || continue;
