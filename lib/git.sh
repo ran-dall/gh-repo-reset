@@ -38,7 +38,7 @@ snapshot_git_and_metadata ()
         fi;
     fi;
     snapshot_api "$dir/issues.json" "repos/$REPO/issues?state=all&per_page=100";
-    snapshot_api "$dir/pulls.json" "repos/$REPO/pulls?state=all&per_page=100";
+    snapshot_api_optional_404 "$dir/pulls.json" "repos/$REPO/pulls?state=all&per_page=100";
     snapshot_api "$dir/releases.json" "repos/$REPO/releases?per_page=100";
     if [[ "${HAS_DISCUSSIONS:-false}" == true ]]; then
         snapshot_api "$dir/discussions.json" "repos/$REPO/discussions?per_page=100";
