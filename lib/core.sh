@@ -334,6 +334,66 @@ snapshot_json ()
     return 0
 }
 
+restore_step_done ()
+{
+    local key="$1" journal="${BACKUP_DIR:-}/restore-completed.txt";
+    [[ -n "${BACKUP_DIR:-}" && -f "$journal" ]] || return 1;
+    grep -Fqx "$key" "$journal"
+}
+
+mark_restore_step_done ()
+{
+    local key="$1" journal="${BACKUP_DIR:-}/restore-completed.txt";
+    [[ -n "${BACKUP_DIR:-}" ]] || return 0;
+    restore_step_done "$key" && return 0;
+    printf '%s\n' "$key" >> "$journal"
+}
+
+restore_once ()
+{
+    local key="$1" label="$2" err;
+    shift 2;
+    if restore_step_done "$key"; then
+        vlog "$label already restored; skipping.";
+        return 0;
+    fi;
+
+    if (( ${VERBOSE:-0} )); then
+        if "$@"; then
+            mark_restore_step_done "$key";
+        else
+            record_restore_failure "$label";
+            warn "$label failed; continuing.";
+        fi;
+        return 0;
+    fi;
+
+    err="$(mktemp)";
+    if "$@" > /dev/null 2> "$err"; then
+        mark_restore_step_done "$key";
+        rm -f "$err";
+        return 0;
+    fi;
+
+    record_restore_failure "$label";
+    if [[ -n "${BACKUP_DIR:-}" ]]; then
+        {
+            printf '[%s]\n' "$label";
+            cat "$err";
+            printf '\n';
+        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
+    fi;
+    warn "$label failed; continuing.";
+    rm -f "$err";
+    return 0
+}
+
+restore_json_once ()
+{
+    local key="$1" label="$2" method="$3" endpoint="$4" file="$5";
+    [[ -s "$file" ]] || return 0;
+    restore_once "$key" "$label" api --method "$method" "$endpoint" --input "$file"
+}
 restore_json () 
 { 
     local label="$1" method="$2" endpoint="$3" file="$4";
