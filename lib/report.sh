@@ -30,7 +30,26 @@ repair_legacy_repo_booleans ()
         return 0;
     };
 
-    while IFS=
+    while IFS='|' read -r var key; do
+        value="$(json_top_level_bool "$raw" "$key" || true)";
+        [[ "$value" == true || "$value" == false ]] || continue;
+        write_assignment "$state" "$var" "$value";
+        repaired=1;
+    done <<'BOOL_EOF'
+ALLOW_SQUASH|allow_squash_merge
+ALLOW_MERGE|allow_merge_commit
+ALLOW_REBASE|allow_rebase_merge
+ALLOW_FORKING|allow_forking
+HAS_DOWNLOADS|has_downloads
+HAS_PULL_REQUESTS|has_pull_requests
+BOOL_EOF
+
+    if (( repaired )); then
+        write_assignment "$state" LEGACY_REPO_BOOLEANS_REPAIRED true;
+        vlog "Repaired legacy boolean snapshot values from repository.json";
+    fi;
+}
+
 count_nonempty_lines ()
 {
     local file="$1";
