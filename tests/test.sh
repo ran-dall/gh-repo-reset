@@ -115,6 +115,8 @@ test_git() (
   git -C "$source" remote add origin https://github.com/owner/repo.git
   git -C "$source" config branch.old-branch.remote origin
   git -C "$source" config branch.old-branch.merge refs/heads/old-branch
+  git -C "$source" config branch.ghost.remote origin
+  git -C "$source" config branch.ghost.merge refs/heads/ghost
   git -C "$source" update-ref refs/remotes/origin/old-branch HEAD~1
   git -C "$source" update-ref refs/archive/old HEAD~1
   git -C "$source" update-ref refs/notes/review HEAD~1
@@ -187,6 +189,7 @@ STATE_EOF
   ! git -C "$source" show-ref --verify --quiet refs/notes/review
   ! git -C "$source" show-ref --verify --quiet refs/stash
   ! git -C "$source" config --local --get-regexp '^branch\.old-branch\.' >/dev/null 2>&1
+  ! git -C "$source" config --local --get-regexp '^branch\.ghost\.' >/dev/null 2>&1
   [[ "$(git -C "$source" config --local --name-only --get-regexp '^branch\.main\.' | wc -l)" -eq 2 ]]
   [[ -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)" ]]
   [[ -z "$(git -C "$linked" status --porcelain=v1 --untracked-files=all)" ]]
