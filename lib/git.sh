@@ -281,7 +281,7 @@ find_local_target_remote ()
 
     ((${#matches[@]})) || return 1;
     for remote in "${matches[@]}"; do
-        if [[ "$remote" == "$remote_name" ]]; then
+        if [[ "$remote" == origin ]]; then
             printf '%s\n' "$remote";
             return 0;
         fi;
