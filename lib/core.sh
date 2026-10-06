@@ -338,20 +338,29 @@ run_snapshot_jobs ()
 {
     local dir="$1";
     shift;
-    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0;
-    local -a pids=();
+    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0 progressed;
+    local -a pids=() next=();
 
     [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
 
     for fn in "$@"; do
+        while (( ${#pids[@]} >= limit )); do
+            progressed=0;
+            next=();
+            for pid in "${pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    next+=("$pid");
+                    continue;
+                fi;
+                wait "$pid" || status=1;
+                progressed=1;
+            done;
+            pids=("${next[@]}");
+            (( progressed )) || sleep 0.05;
+        done;
+
         "$fn" "$dir" &
         pids+=("$!");
-        if (( ${#pids[@]} >= limit )); then
-            for pid in "${pids[@]}"; do
-                wait "$pid" || status=1;
-            done;
-            pids=();
-        fi;
     done;
 
     for pid in "${pids[@]}"; do
