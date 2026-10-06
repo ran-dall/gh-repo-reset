@@ -113,7 +113,7 @@ gh_repo_reset_main() {
     record_package_actions_access_followup "$BACKUP_DIR"
     log "Resuming reset: $REPO"
     build_restore_plan "$BACKUP_DIR"
-    (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
+    print_detected_summary "$BACKUP_DIR"
     print_restore_plan_summary "$BACKUP_DIR"
     (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
     restore_detected_state "$BACKUP_DIR"
@@ -160,26 +160,23 @@ gh_repo_reset_main() {
 
   # Independent API reads are intentionally bounded: enough concurrency to hide
   # network latency without creating an aggressive burst against GitHub APIs.
-  # The worker helper runs fixed-size waves. Put the multi-request snapshots
-  # together so their network latency overlaps instead of making later waves
-  # wait behind one heavy job paired with three fast ones.
   run_snapshot_jobs "$BACKUP_DIR" \
-    snapshot_org_bindings \
     snapshot_environments \
-    snapshot_app_installations \
-    snapshot_webhooks \
-    snapshot_access \
-    snapshot_branch_protection \
-    snapshot_secrets \
-    snapshot_actions_policies \
     snapshot_labels \
     snapshot_actions_settings \
     snapshot_deploy_keys \
     snapshot_variables \
+    snapshot_secrets \
+    snapshot_access \
     snapshot_rulesets \
+    snapshot_branch_protection \
+    snapshot_actions_policies \
     snapshot_autolinks \
+    snapshot_app_installations \
+    snapshot_org_bindings \
     snapshot_custom_properties \
-    snapshot_pages
+    snapshot_pages \
+    snapshot_webhooks
 
   if wait "$git_snapshot_pid"; then
     record_snapshot_status "Git and metadata mirror" captured
@@ -209,7 +206,7 @@ gh_repo_reset_main() {
   if has_irreplaceable_metadata; then metadata_present=1; fi
   record_package_actions_access_followup "$BACKUP_DIR"
   build_restore_plan "$BACKUP_DIR"
-  (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
   print_restore_plan_summary "$BACKUP_DIR"
   (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
 
@@ -238,7 +235,7 @@ GUARD_EOF
   source "$BACKUP_DIR/repo-state.sh"
 
   if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
-    vlog "Deleting $(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv") GitHub package(s)..."
+    log "Deleting detected same-owner GitHub Packages..."
     if ! delete_reset_packages "$BACKUP_DIR"; then
       warn "Package cleanup failed; refusing to delete $REPO."
       warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
@@ -256,7 +253,7 @@ GUARD_EOF
   vlog "Recreating with visibility: $VISIBILITY"
   create_repository "$VISIBILITY"
   restore_detected_state "$BACKUP_DIR"
-  log "Done. Safety backup: $BACKUP_DIR"
+  log "Done. Backup: $BACKUP_DIR"
 }
  "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
     local -a snapshot_failures=()
@@ -289,7 +286,7 @@ GUARD_EOF
   if has_irreplaceable_metadata; then metadata_present=1; fi
   record_package_actions_access_followup "$BACKUP_DIR"
   build_restore_plan "$BACKUP_DIR"
-  (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
+  print_detected_summary "$BACKUP_DIR"
   print_restore_plan_summary "$BACKUP_DIR"
   (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
 
@@ -318,7 +315,7 @@ GUARD_EOF
   source "$BACKUP_DIR/repo-state.sh"
 
   if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
-    log "Deleting $(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv") GitHub package(s)..."
+    log "Deleting detected same-owner GitHub Packages..."
     if ! delete_reset_packages "$BACKUP_DIR"; then
       warn "Package cleanup failed; refusing to delete $REPO."
       warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
@@ -336,5 +333,5 @@ GUARD_EOF
   vlog "Recreating with visibility: $VISIBILITY"
   create_repository "$VISIBILITY"
   restore_detected_state "$BACKUP_DIR"
-  log "Done. Safety backup: $BACKUP_DIR"
+  log "Done. Backup: $BACKUP_DIR"
 }
