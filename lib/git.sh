@@ -438,18 +438,13 @@ reset_local_checkout ()
 
     git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
 
-    # Drop every local branch config section before rebuilding only the default branch's
-    # upstream. This also catches orphaned branch.<name>.* settings whose branch
-    # ref was deleted before this reset.
-    mapfile -t branch_sections < <(
-        git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null \
-          | awk -F. 'NF >= 3 { key=$NF; sub("\\." key "$", ""); print }' \
-          | sort -u
-    );
-    for branch_section in "${branch_sections[@]}"; do
-        [[ -n "$branch_section" ]] || continue;
-        git -C "$root" config --local --remove-section "$branch_section" >/dev/null 2>&1 || true;
-    done;
+    # Drop every local branch config key before rebuilding only the default
+    # branch's upstream. Deleting exact keys avoids subsection parsing and also
+    # catches orphaned branch.<name>.* settings whose branch ref no longer exists.
+    while IFS= read -r branch_key; do
+        [[ -n "$branch_key" ]] || continue;
+        git -C "$root" config --local --unset-all "$branch_key" >/dev/null 2>&1 || true;
+    done < <(git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null || true);
     git -C "$root" branch --set-upstream-to="$remote_name/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
       || die "could not set local $DEFAULT_BRANCH to track $remote_name/$DEFAULT_BRANCH";
 
