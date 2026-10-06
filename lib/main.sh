@@ -39,7 +39,7 @@ restore_detected_state ()
   vlog "Ensuring the prepared initial commit is on $DEFAULT_BRANCH..."
   push_initial_commit "$dir"
 
-  log "Restoring detected repository state..."
+  log "Restoring repository state..."
   restore_repo_settings "$dir"
   restore_labels "$dir"
   restore_deploy_keys "$dir"
@@ -117,7 +117,7 @@ gh_repo_reset_main() {
     print_restore_plan_summary "$BACKUP_DIR"
     (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
     restore_detected_state "$BACKUP_DIR"
-    log "Done. Safety backup: $BACKUP_DIR"
+    log "Done. Backup: $BACKUP_DIR"
     return 0
   fi
 
@@ -141,7 +141,7 @@ gh_repo_reset_main() {
   if (( DRY_RUN )); then
     log "Dry run: $REPO"
   else
-    log "Resetting: $REPO"
+    log "Preparing reset: $REPO"
   fi
   vlog "Version: $VERSION"
   if (( DRY_RUN )); then
@@ -149,7 +149,7 @@ gh_repo_reset_main() {
   else
     vlog "Backup: $BACKUP_DIR"
   fi
-  log "Snapshotting repository state..."
+  vlog "Snapshotting repository state..."
 
   save_repo_state "$BACKUP_DIR"
 
@@ -194,21 +194,85 @@ gh_repo_reset_main() {
     return 5
   fi
 
-  if grep -Eq '[[:space:]]failed$' "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
-    warn "Snapshot is incomplete; refusing to continue."
-    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
-      while IFS= read -r snapshot_failure; do
-        [[ -n "$snapshot_failure" ]] || continue
-        warn "Snapshot failure: $snapshot_failure"
-      done < "$BACKUP_DIR/snapshot-failures.txt"
-    else
-      warn "Failed snapshot entries are recorded in $BACKUP_DIR/snapshot-status.tsv"
+  if grep -Eq '[[:space:]]failed
+
+  if ! prepare_local_checkout_reset "$BACKUP_DIR"; then
+    warn "Local checkout preflight failed; refusing to continue."
+    warn "Snapshot kept at $BACKUP_DIR"
+    return 7
+  fi
+
+  local metadata_present
+  prepare_initial_commit "$BACKUP_DIR"
+
+  metadata_present=0
+  if has_irreplaceable_metadata; then metadata_present=1; fi
+  record_package_actions_access_followup "$BACKUP_DIR"
+  build_restore_plan "$BACKUP_DIR"
+  (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
+  print_restore_plan_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
+
+  if (( DRY_RUN )); then
+    log "Dry run complete — no changes made."
+    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    log "Snapshot: $BACKUP_DIR"
+    return 0
+  fi
+
+  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
+    cat >&2 <<GUARD_EOF
+
+[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
+cannot be round-tripped. The safety backup was still created at:
+  $BACKUP_DIR
+
+Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
+--allow-metadata-loss if this reset is really intended.
+GUARD_EOF
+    return 3
+  fi
+
+  confirm_reset
+  # shellcheck disable=SC1090
+  source "$BACKUP_DIR/repo-state.sh"
+
+  if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
+    vlog "Deleting $(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv") GitHub package(s)..."
+    if ! delete_reset_packages "$BACKUP_DIR"; then
+      warn "Package cleanup failed; refusing to delete $REPO."
+      warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
+      [[ -s "$BACKUP_DIR/package-delete-errors.log" ]] && warn "Package errors: $BACKUP_DIR/package-delete-errors.log"
+      return 6
     fi
-    if [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
-      warn "Snapshot API errors:"
+  fi
+
+  log "Recreating $REPO..."
+  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
+    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
+    return 4
+  fi
+
+  vlog "Recreating with visibility: $VISIBILITY"
+  create_repository "$VISIBILITY"
+  restore_detected_state "$BACKUP_DIR"
+  log "Done. Safety backup: $BACKUP_DIR"
+}
+ "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+    local -a snapshot_failures=()
+    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+      mapfile -t snapshot_failures < <(awk 'NF' "$BACKUP_DIR/snapshot-failures.txt")
+    fi
+    if (( ${#snapshot_failures[@]} )); then
+      warn "Snapshot incomplete: $(join_comma "${snapshot_failures[@]}")."
+    else
+      warn "Snapshot incomplete; see $BACKUP_DIR/snapshot-status.tsv"
+    fi
+    [[ -s "$BACKUP_DIR/snapshot-errors.log" ]] && warn "Snapshot errors: $BACKUP_DIR/snapshot-errors.log"
+    if (( VERBOSE )) && [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
       sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
     fi
-    warn "Snapshot kept at $BACKUP_DIR"
+    warn "No destructive changes were made. Snapshot kept at $BACKUP_DIR"
     return 5
   fi
 
