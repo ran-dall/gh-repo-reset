@@ -72,6 +72,7 @@ restore_detected_state ()
 
 gh_repo_reset_main() {
   local requested_repo="" git_snapshot_pid="" api_snapshot_failed=0 git_snapshot_failed=0 repo_backup_root=""
+  local -a content_backup_issues=()
   while (($#)); do
     case "$1" in
       --yes) YES=1 ;;
@@ -248,6 +249,16 @@ gh_repo_reset_main() {
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
 
+  # Git/LFS/wiki content is not covered by --allow-metadata-loss. A real reset
+  # must have a safe copy of content that GitHub cannot reconstruct for us.
+  source "$BACKUP_DIR/repo-state.sh"
+  if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" != complete ]]; then
+    content_backup_issues+=("Git LFS objects are not fully backed up")
+  fi
+  if [[ "${HAS_WIKI:-false}" == true && "${WIKI_BACKUP:-none}" == failed ]]; then
+    content_backup_issues+=("wiki Git history backup failed")
+  fi
+
   metadata_present=0
   if has_irreplaceable_metadata; then metadata_present=1; fi
   record_package_actions_access_followup "$BACKUP_DIR"
@@ -259,8 +270,16 @@ gh_repo_reset_main() {
   if (( DRY_RUN )); then
     log "Dry run complete — no changes made."
     (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    (( ${#content_backup_issues[@]} )) && warn "A real reset is blocked until: $(join_semicolon "${content_backup_issues[@]}")."
     log "Snapshot: $BACKUP_DIR"
     return 0
+  fi
+
+  if (( ${#content_backup_issues[@]} )); then
+    warn "Content backup is incomplete; refusing destructive reset."
+    warn "$(join_semicolon "${content_backup_issues[@]}")."
+    warn "Backup kept at $BACKUP_DIR"
+    return 8
   fi
 
   if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
