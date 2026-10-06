@@ -141,7 +141,8 @@ restore_labels ()
             fi;
         done;
         if (( ! desired_match )); then
-            gh label delete "$CURRENT_LABEL_NAME" -R "$REPO" --yes > /dev/null 2>&1 || true;
+            best_effort "removing stale label $CURRENT_LABEL_NAME" \
+              gh label delete "$CURRENT_LABEL_NAME" -R "$REPO" --yes;
         fi;
     done;
     shopt -u nullglob;
