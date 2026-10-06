@@ -533,7 +533,11 @@ snapshot_org_bindings ()
 
     rm -rf "$probes";
     rm -f "$candidates" "$tasks";
-    (( candidate_failed == 0 && membership_failed == 0 )) || record_snapshot_status "organization selected-repository bindings" failed;
+    if (( candidate_failed || membership_failed )); then
+        record_snapshot_status "organization selected-repository bindings" failed;
+    else
+        record_snapshot_status "organization selected-repository bindings" captured;
+    fi;
     return 0
 }
 
@@ -547,6 +551,9 @@ snapshot_pages ()
 { 
     local dir="$1" file fragment rc=0;
     file="$dir/pages-state.sh";
+    # This duplicate endpoint read is intentional: keep the raw response for
+    # recovery/audit while producing shell-safe restore state without adding a
+    # local JSON parser dependency.
     snapshot_capture_optional_404 "$dir/pages.json" "Pages configuration" api "repos/$REPO/pages" || rc=$?;
     if (( rc == 2 )); then
         rm -f "$dir/pages.json";
