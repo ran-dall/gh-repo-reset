@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/ran-dall/gh-repo-reset/main/gh-repo
 
 For a pinned release/tagged run, replace `main` with `v0.0.0-1`. The streamed launcher then fetches its modules from the same pinned version by default. Set `GH_REPO_RESET_SOURCE_REF=main` only when intentionally testing unreleased code.
 
-Streamed bootstrap fetches the complete `lib/` module tree in one GraphQL request when GitHub exposes every blob intact, with bounded parallel REST as a compatibility fallback. Snapshot reads also run concurrently while the full Git mirror is being created. The default concurrency is 4; set `GH_REPO_RESET_JOBS=N` to tune it for a high-latency connection, but higher values can increase GitHub secondary-rate-limit pressure.
+Streamed bootstrap fetches the complete `lib/` module tree in one GraphQL request when GitHub exposes every blob intact, with bounded parallel REST as a compatibility fallback. Snapshot reads also run concurrently while the full Git mirror is being created. Snapshot workers use a rolling bounded pool, so completed jobs immediately free a slot instead of waiting for an entire batch. The default concurrency is 4; set `GH_REPO_RESET_JOBS=N` to tune it for a high-latency connection, but higher values can increase GitHub secondary-rate-limit pressure.
 
 Piped execution still reads destructive confirmation from `/dev/tty`.
 
@@ -141,7 +141,7 @@ mise run test --suite pipe
 mise run test
 ```
 
-Normal runs are intentionally concise: they report what was actually detected, how many configuration groups will be restored automatically, and only the manual items that apply to that repository. Add `--verbose` for detailed snapshot diagnostics and the full per-feature restore plan.
+Normal runs are intentionally concise: they show only the major lifecycle phases, the compact restore/package/worktree/manual-follow-up plan, actionable warnings, and the final backup path. Raw snapshot API errors stay in the backup log instead of flooding the terminal. Add `--verbose` for detected-state details, raw snapshot diagnostics, per-feature restore planning, and individual package/reset operations.
 
 Run the full local contract + test pass with:
 
