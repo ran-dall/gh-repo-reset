@@ -55,10 +55,11 @@ A real run:
   1. Makes a full local mirror backup of the old Git repository.
   2. Snapshots readable repository configuration and secret *metadata*.
   3. Creates a new root commit from the old default branch's exact tree.
-  4. Deletes and recreates OWNER/REPO.
-  5. Pushes ONLY that one root commit.
-  6. Best-effort restores readable repository configuration.
-  7. Opens GitHub pages for credentials/integrations that require re-authorization.
+  4. Deletes detected reset-target GitHub Packages (for example ghcr.io/OWNER/REPO).
+  5. Deletes and recreates OWNER/REPO.
+  6. Pushes ONLY that one root commit.
+  7. Best-effort restores readable repository configuration.
+  8. Opens GitHub pages for credentials/integrations that require re-authorization.
 
 The recreated remote does NOT get old commit history, branches, or tags. The local
 backup keeps them for emergency recovery. GitHub never returns stored secret values,
