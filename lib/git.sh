@@ -2,7 +2,7 @@
 
 snapshot_git_backup ()
 {
-    local dir="$1" git_state;
+    local dir="$1" git_state wiki_err;
     vlog "Creating full local mirror backup...";
     gh auth setup-git > /dev/null;
     if (( VERBOSE )); then
@@ -15,6 +15,7 @@ snapshot_git_backup ()
     : > "$git_state";
     write_assignment "$git_state" LFS_USED false;
     write_assignment "$git_state" LFS_BACKUP none;
+    write_assignment "$git_state" WIKI_BACKUP none;
     if git -C "$dir/git.git" show "refs/heads/$DEFAULT_BRANCH:.gitattributes" 2> /dev/null | grep -Eq 'filter=lfs|filter[[:space:]]*=[[:space:]]*lfs'; then
         write_assignment "$git_state" LFS_USED true;
         if git lfs version > /dev/null 2>&1; then
@@ -30,14 +31,21 @@ snapshot_git_backup ()
         fi;
     fi;
     if [[ "${HAS_WIKI:-false}" == true ]]; then
-        if (( VERBOSE )); then
-            if ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git"; then
-                vwarn "wiki mirror is unavailable; continuing without it";
-                rm -rf "$dir/wiki.git";
-            fi;
-        elif ! git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git" > /dev/null 2>&1; then
+        wiki_err="$dir/wiki-clone.err";
+        if git clone --mirror "https://github.com/$REPO.wiki.git" "$dir/wiki.git" > /dev/null 2> "$wiki_err"; then
+            write_assignment "$git_state" WIKI_BACKUP complete;
+            (( VERBOSE )) && vlog "Wiki Git history backed up.";
+        elif grep -Eqi 'repository .* not found|not found|does not exist' "$wiki_err"; then
+            write_assignment "$git_state" WIKI_BACKUP absent;
+            vlog "Wiki is enabled but no wiki Git repository exists yet.";
+            rm -rf "$dir/wiki.git";
+        else
+            write_assignment "$git_state" WIKI_BACKUP failed;
+            warn "Wiki Git history backup failed";
+            (( VERBOSE )) && sed 's/^/  /' "$wiki_err" >&2 || true;
             rm -rf "$dir/wiki.git";
         fi;
+        rm -f "$wiki_err";
     fi;
     snapshot_package_actions_access_hints "$dir"
 }
