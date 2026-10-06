@@ -183,13 +183,14 @@ else
   PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" ./gh-repo-reset owner/repo --dry-run "$@" >"$TMP/out" 2>"$TMP/err"
 fi
 grep -q 'Dry run complete' "$TMP/err"
-grep -q 'Detected:' "$TMP/err"
-grep -q 'Will restore' "$TMP/err"
+grep -q 'Plan:' "$TMP/err"
 ! grep -q 'Automatically handled when GitHub exposes enough information' "$TMP/err"
 if [[ " $* " == *" --verbose "* ]]; then
+  grep -q 'Detected:' "$TMP/err"
   grep -q 'Prepared fresh root commit' "$TMP/err"
   grep -q 'Plan \[auto\]' "$TMP/err"
 else
+  ! grep -q 'Detected:' "$TMP/err"
   ! grep -q 'Prepared fresh root commit' "$TMP/err"
   ! grep -q 'Plan \[auto\]' "$TMP/err"
 fi
