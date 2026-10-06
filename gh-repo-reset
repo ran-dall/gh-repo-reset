@@ -4,7 +4,7 @@ umask 077
 
 VERSION="v0.0.0-1"
 PROGRAM="gh-repo-reset"
-SOURCE_REPO="ran-dall/gh-repo-reset"
+SOURCE_REPO="${GH_REPO_RESET_SOURCE_REPO:-ran-dall/gh-repo-reset}"
 SOURCE_REF="${GH_REPO_RESET_SOURCE_REF:-$VERSION}"
 SPEC_FILE="gh-repo-reset.usage.kdl"
 
@@ -27,6 +27,10 @@ source_refs() {
   fi
 }
 
+validate_source_repo() {
+  [[ "$SOURCE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+}
+
 print_usage_spec() {
   local script_path="${BASH_SOURCE[0]:-}" script_dir candidate ref endpoint
 
@@ -39,6 +43,10 @@ print_usage_spec() {
     fi
   fi
 
+  validate_source_repo || {
+    printf '[%s] ERROR: invalid GH_REPO_RESET_SOURCE_REPO: %s\n' "$PROGRAM" "$SOURCE_REPO" >&2
+    return 1
+  }
   command -v gh >/dev/null 2>&1 || {
     printf '[%s] ERROR: gh is required to fetch %s during streamed execution.\n' "$PROGRAM" "$SPEC_FILE" >&2
     return 1
@@ -108,6 +116,10 @@ find_local_modules() {
 }
 
 fetch_remote_modules() {
+  validate_source_repo || {
+    printf '[%s] ERROR: invalid GH_REPO_RESET_SOURCE_REPO: %s\n' "$PROGRAM" "$SOURCE_REPO" >&2
+    exit 1
+  }
   command -v gh >/dev/null 2>&1 || {
     printf '[%s] ERROR: gh is required to bootstrap modules during streamed execution.\n' "$PROGRAM" >&2
     exit 1
