@@ -300,7 +300,7 @@ prepare_local_checkout_reset ()
 
 reset_local_checkout ()
 {
-    local dir="$1" root expected remote_head ref status wt old_head expected_count actual_count;
+    local dir="$1" root expected remote_head ref branch_name status wt old_head expected_count actual_count;
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
@@ -331,6 +331,16 @@ reset_local_checkout ()
     done < "$dir/local-worktrees.tsv";
 
     git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
+
+    # Drop every branch-specific config section before rebuilding only main's
+    # upstream. Removing a branch ref directly does not clean branch.<name>.*
+    # settings, so leaving these behind would accumulate stale local metadata.
+    while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue;
+        branch_name="${ref#refs/heads/}";
+        git -C "$root" config --remove-section "branch.$branch_name" >/dev/null 2>&1 || true;
+    done < <(git -C "$root" for-each-ref --format='%(refname)' refs/heads);
+    git -C "$root" config --remove-section "branch.$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
     git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
 
     while IFS= read -r ref; do
@@ -341,6 +351,9 @@ reset_local_checkout ()
         git -C "$root" update-ref -d "$ref" >/dev/null 2>&1 || die "could not remove stale local ref $ref";
     done < <(git -C "$root" for-each-ref --format='%(refname)' refs);
 
+    # Remove registrations Git considers stale after the rewrite too, then
+    # expire reflogs and prune unreachable history.
+    git -C "$root" worktree prune --expire=now >/dev/null 2>&1 || die "could not prune stale worktree registrations after reset";
     git -C "$root" reflog expire --expire=now --all >/dev/null 2>&1 || true;
     git -C "$root" gc --prune=now >/dev/null 2>&1 || true;
 
