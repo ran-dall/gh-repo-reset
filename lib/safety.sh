@@ -107,15 +107,16 @@ has_irreplaceable_metadata ()
 confirm_reset () 
 { 
     (( YES )) && return 0;
-    local typed package_count=0 local_checkout="";
+    local typed package_count=0 local_checkout="" worktree_count=0;
     package_count="$(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv")";
     [[ -s "$BACKUP_DIR/local-checkout.path" ]] && local_checkout="$(cat "$BACKUP_DIR/local-checkout.path")";
+    [[ -s "$BACKUP_DIR/local-worktrees.tsv" ]] && worktree_count="$(count_nonempty_lines "$BACKUP_DIR/local-worktrees.tsv")";
     printf '\nThis will DELETE and RECREATE %s with ONE fresh initial commit.\n' "$REPO" 1>&2;
     if (( package_count )); then
         printf 'It will also DELETE %s detected same-owner GitHub package(s) for this reset.\n' "$package_count" 1>&2;
     fi;
     if [[ -n "$local_checkout" ]]; then
-        printf 'It will also RESET the matching local checkout at %s.\n' "$local_checkout" 1>&2;
+        printf 'It will also RESET the matching local repository at %s (%s worktree(s)).\n' "$local_checkout" "$worktree_count" 1>&2;
     fi;
     printf 'Type the full repository name (%s) to continue: ' "$REPO" 1>&2;
     if [[ -r /dev/tty ]]; then
