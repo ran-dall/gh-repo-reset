@@ -90,30 +90,67 @@ JSON_EOF
 )
 
 test_git() (
-  local tmp source mirror remote tree root
+  set -Eeuo pipefail
+  local tmp source mirror remote backup tree root
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   source="$tmp/source"
   mirror="$tmp/mirror.git"
   remote="$tmp/remote.git"
+  backup="$tmp/backup"
+  mkdir -p "$backup"
 
   git init -q -b main "$source"
   printf 'one\n' > "$source/file.txt"
   git -C "$source" add file.txt
   git -C "$source" -c user.name=Tester -c user.email=test@example.com commit -q -m one
+  printf 'two\n' >> "$source/file.txt"
+  git -C "$source" add file.txt
+  git -C "$source" -c user.name=Tester -c user.email=test@example.com commit -q -m two
+  git -C "$source" branch old-branch HEAD~1
+  git -C "$source" tag old-tag HEAD~1
+  git -C "$source" remote add origin https://github.com/owner/repo.git
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  DRY_RUN=0
+  REPO=owner/repo
+  DEFAULT_BRANCH=main
+  BACKUP_DIR="$backup"
+  source ./lib/core.sh
+  source ./lib/git.sh
+
+  (cd "$source" && prepare_local_checkout_reset "$backup")
+  [[ "$(cat "$backup/local-checkout.path")" == "$source" ]]
+  [[ -d "$backup/local.git" ]]
+  git -C "$backup/local.git" show-ref --verify --quiet refs/heads/old-branch
+  git -C "$backup/local.git" show-ref --verify --quiet refs/tags/old-tag
+
   git clone -q --mirror "$source" "$mirror"
   git init -q --bare "$remote"
-
   tree="$(git -C "$mirror" rev-parse 'refs/heads/main^{tree}')"
   root="$(printf 'Initial commit\n' | GIT_AUTHOR_NAME=Tester GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=Tester GIT_COMMITTER_EMAIL=test@example.com git -C "$mirror" commit-tree "$tree")"
   git -C "$mirror" update-ref refs/gh-repo-reset/initial "$root"
   git -C "$mirror" remote set-url origin "$remote"
   git -C "$mirror" config --unset-all remote.origin.mirror >/dev/null 2>&1 || true
   git -C "$mirror" push -q origin 'refs/gh-repo-reset/initial:refs/heads/main'
+  printf '%s\n' "$root" > "$backup/initial-commit.txt"
+  cat > "$backup/repo-state.sh" <<'STATE_EOF'
+REPO=owner/repo
+DEFAULT_BRANCH=main
+STATE_EOF
+
+  git -C "$source" remote set-url origin "$remote"
+  reset_local_checkout "$backup"
 
   [[ "$(git -C "$remote" rev-parse refs/heads/main)" == "$root" ]]
   [[ "$(git -C "$remote" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
   [[ "$(git -C "$remote" rev-list --parents -n1 "$root" | awk '{print NF-1}')" -eq 0 ]]
+  [[ "$(git -C "$source" rev-parse HEAD)" == "$root" ]]
+  [[ "$(git -C "$source" rev-list --count HEAD)" -eq 1 ]]
+  [[ "$(git -C "$source" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
+  [[ -z "$(git -C "$source" for-each-ref --format='%(refname)' refs/tags)" ]]
+  [[ -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)" ]]
   echo 'git: ok'
 )
 
