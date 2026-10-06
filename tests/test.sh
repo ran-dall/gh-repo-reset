@@ -236,9 +236,14 @@ STATE_EOF
   source ./lib/core.sh
   source ./lib/restore.sh
 
+  LABEL_LIST_FAIL=0
   gh() {
     local args=" $* "
     if [[ "$args" == *" label list "* ]]; then
+      if (( LABEL_LIST_FAIL )); then
+        printf 'label list failed\n' >&2
+        return 1
+      fi
       printf 'bug\td73a4a\tbroken\n'
       printf 'custom\tabcdef\told\n'
       printf 'extra\tffffff\tremove\n'
@@ -255,6 +260,15 @@ STATE_EOF
   grep -Fq 'label delete extra -R owner/repo --yes' "$test_gh_log"
   ! grep -Fq 'label delete bug' "$test_gh_log"
   ! grep -Fq 'label delete custom' "$test_gh_log"
+
+  LABEL_LIST_FAIL=1
+  : > "$test_gh_log"
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  restore_labels "$tmp"
+  grep -Fxq 'reading current labels' "$tmp/restore-failures.txt"
+  grep -Fq 'label list failed' "$tmp/restore-errors.log"
+  [[ ! -s "$test_gh_log" ]]
   echo 'labels: ok'
 )
 
@@ -542,9 +556,14 @@ STATE_EOF
   source ./lib/report.sh
   source ./lib/restore.sh
 
+  DEPLOY_KEY_LIST_FAIL=0
   gh() {
     local args=" $* "
     if [[ "$args" == *" repo deploy-key list "* ]]; then
+      if (( DEPLOY_KEY_LIST_FAIL )); then
+        printf 'deploy-key list failed\n' >&2
+        return 1
+      fi
       printf 'ssh-ed25519 AAAATEST\ttrue\n'
       return 0
     fi
@@ -558,6 +577,13 @@ STATE_EOF
   restore_deploy_keys "$tmp"
   ! grep -q '^deploy_keys[[:space:]]' "$tmp/manual-items.tsv"
   [[ ! -s "${tmp}/restore-failures.txt" || ! -f "${tmp}/restore-failures.txt" ]]
+
+  DEPLOY_KEY_LIST_FAIL=1
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  restore_deploy_keys "$tmp"
+  grep -Fxq 'reading current deploy keys' "$tmp/restore-failures.txt"
+  grep -Fq 'deploy-key list failed' "$tmp/restore-errors.log"
   echo 'deploy-key: ok'
 )
 
