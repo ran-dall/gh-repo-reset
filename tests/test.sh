@@ -772,6 +772,8 @@ STATE_EOF
 test_dry_run() {
   ./tests/mock-dry-run.sh
   ./tests/mock-dry-run.sh --verbose
+  MOCK_CONFIG=1 ./tests/mock-dry-run.sh
+  MOCK_CONFIG=1 ./tests/mock-dry-run.sh --allow-metadata-loss
 }
 
 test_org() {
