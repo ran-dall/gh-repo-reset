@@ -6,7 +6,7 @@ The new repository gets **one brand-new root commit named `Initial commit`**. Ol
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
-> This deletes and recreates a repository. It always treats `ghcr.io/OWNER/REPO` as a reset target, and can also delete other concrete same-owner GitHub Packages actually referenced by the repository. Run `--dry-run` first.
+> This deletes and recreates a repository. It deletes GHCR containers linked to the repository in GitHub package metadata, plus `ghcr.io/OWNER/REPO` as a legacy same-name fallback. Merely referenced dependencies are not deletion targets. Run `--dry-run` first.
 
 ## Requirements
 
@@ -64,12 +64,12 @@ It cannot automatically recover:
 - webhook signing secrets
 - self-hosted runner registration/authentication tokens
 - GitHub App/OAuth grants tied to the old repository identity
-- GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so concrete same-owner package references are deleted as reset targets while unresolved registry-only usage remains a manual follow-up
+- GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so linked reset-target containers are deleted while referenced-but-unlinked dependencies remain a manual follow-up
 - external cloud/OIDC trust that embeds the old GitHub repository ID
 
 It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, old commit history, or package artifacts deleted as reset targets. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
 
-When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, `container/REPO` is always written to `package-reset-targets.tsv`, so a repository such as `Kaiju-Ind/twenty` targets `ghcr.io/Kaiju-Ind/twenty` even if that string does not appear in the source tree. Other concrete same-owner package references are added only when they are actually detected in the repository. Registry usage without a concrete package name stays a manual follow-up.
+When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GHCR, `container/REPO` is always written to `package-reset-targets.tsv` as a legacy fallback. The snapshot also enumerates the owner's container packages and adds every package whose GitHub package metadata links it to the repository ID being reset. A container that is merely pulled or referenced by the repository is not deleted unless it is linked to this repository. Registry usage without a concrete package name stays a manual follow-up.
 
 ## Layout
 
