@@ -1,6 +1,6 @@
 [tools]
-gh = "2.101.0"
-usage = "6.12.0"
+gh = "2.102.0"
+usage = "6.12.1"
 
 [tasks.check]
 description = "Run the CLI contract check and all tests"
