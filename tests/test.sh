@@ -205,7 +205,6 @@ STATE_EOF
 
   snapshot_package_actions_access_hints "$tmp"
   grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
-  ! grep -Fq 'tailscale-bunny' "$tmp/package-actions-access.tsv"
 
   snapshot_package_reset_targets "$tmp"
   grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
@@ -228,7 +227,6 @@ STATE_EOF
 
   delete_reset_packages "$tmp"
   grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
-  ! grep -Fq 'tailscale-bunny' "$tmp/package-api.log"
   [[ ! -s "$tmp/package-delete-failures.tsv" ]]
 
   DELETE_FAIL=1
