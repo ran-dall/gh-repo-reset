@@ -54,17 +54,18 @@ If OWNER/REPO is omitted, it is inferred with `gh repo view`.
 A real run:
   1. Makes a full local mirror backup of the old Git repository.
   2. Snapshots readable repository configuration and secret *metadata*.
-  3. Backs up a matching clean local checkout when the command is run inside it.
+  3. Backs up a matching local repository and all clean linked worktree HEADs.
   4. Creates a new root commit from the old default branch's exact tree.
   5. Deletes detected reset-target GitHub Packages (for example ghcr.io/OWNER/REPO).
   6. Deletes and recreates OWNER/REPO.
   7. Pushes ONLY that one root commit.
   8. Best-effort restores readable repository configuration.
-  9. Resets the matching local checkout to that same one-commit history.
+  9. Resets every matching local worktree to that same one-commit history.
  10. Opens GitHub pages for credentials/integrations that require re-authorization.
 
-The recreated remote and matching local checkout do NOT keep old commit history,
-branches, or tags. The timestamped safety backup keeps them for emergency recovery.
+The recreated remote and matching local repository do NOT keep old commit history,
+branches, or tags. Linked worktree directories are preserved, and the timestamped safety
+backup keeps the old refs and worktree HEADs for emergency recovery.
 GitHub never returns stored secret values,
 webhook signing secrets, private deploy keys, or ephemeral tokens to this tool.
 USAGE_EOF
