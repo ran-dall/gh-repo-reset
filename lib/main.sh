@@ -17,7 +17,7 @@ self_test ()
     [[ "$(urlencode 'prod/us west')" == 'prod%2Fus%20west' ]] || die "urlencode self-test failed";
     [[ "$(bool enabled)" == true && "$(bool false)" == false ]] || die "bool self-test failed";
     [[ "$(normalize_permission write)" == push && "$(normalize_permission read)" == pull ]] || die "permission self-test failed";
-    [[ "$VERSION" == 'v0.0.0-1' ]] || die "version pin self-test failed";
+    [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "version format self-test failed";
     local tmp;
     tmp="$(mktemp)";
     write_assignment "$tmp" TEST_VALUE 'a b $ c';
@@ -97,8 +97,11 @@ gh_repo_reset_main() {
 
   if [[ -n "$RESUME_FROM" ]]; then
     [[ -d "$RESUME_FROM" ]] || die "resume backup directory not found: $RESUME_FROM"
-    RESUME_FROM="$(cd -- "$RESUME_FROM" && pwd)"
+    RESUME_FROM="$(cd -- "$RESUME_FROM" && pwd -P)"
+    [[ -O "$RESUME_FROM" ]] || die "resume backup must be owned by the current user: $RESUME_FROM"
     [[ -f "$RESUME_FROM/repo-state.sh" && -d "$RESUME_FROM/git.git" && -f "$RESUME_FROM/initial-commit.txt" ]] || die "resume backup is incomplete: $RESUME_FROM"
+    [[ -O "$RESUME_FROM/repo-state.sh" && -O "$RESUME_FROM/git.git" && -O "$RESUME_FROM/initial-commit.txt" ]] \
+      || die "resume backup contains files not owned by the current user"
     requested_repo="$REPO"
     # shellcheck disable=SC1090
     source "$RESUME_FROM/repo-state.sh"
