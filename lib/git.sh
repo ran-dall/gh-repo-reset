@@ -266,21 +266,44 @@ github_repo_from_remote_url ()
     printf '%s\n' "$path"
 }
 
+find_local_target_remote ()
+{
+    local root="$1" remote url remote_repo;
+    local -a matches=();
+
+    while IFS= read -r remote; do
+        [[ -n "$remote" ]] || continue;
+        url="$(git -C "$root" remote get-url "$remote" 2>/dev/null)" || continue;
+        remote_repo="$(github_repo_from_remote_url "$url" 2>/dev/null)" || continue;
+        [[ "${remote_repo,,}" == "${REPO,,}" ]] || continue;
+        matches+=("$remote");
+    done < <(git -C "$root" remote 2>/dev/null | LC_ALL=C sort);
+
+    ((${#matches[@]})) || return 1;
+    for remote in "${matches[@]}"; do
+        if [[ "$remote" == "$remote_name" ]]; then
+            printf '%s\n' "$remote";
+            return 0;
+        fi;
+    done;
+    printf '%s\n' "${matches[0]}"
+}
+
 detect_local_target_checkout ()
 {
-    local root remote remote_repo;
+    local root;
     root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1;
-    remote="$(git -C "$root" remote get-url origin 2>/dev/null)" || return 1;
-    remote_repo="$(github_repo_from_remote_url "$remote" 2>/dev/null)" || return 1;
-    [[ "${remote_repo,,}" == "${REPO,,}" ]] || return 1;
+    find_local_target_remote "$root" >/dev/null || return 1;
     printf '%s\n' "$root"
 }
 
 prepare_local_checkout_reset ()
 {
-    local dir="$1" root status wt head idx=0 dirty=0;
+    local dir="$1" root remote_name status wt head idx=0 dirty=0;
     root="$(detect_local_target_checkout 2>/dev/null)" || return 0;
+    remote_name="$(find_local_target_remote "$root")" || return 0;
     printf '%s\n' "$root" > "$dir/local-checkout.path";
+    printf '%s\n' "$remote_name" > "$dir/local-remote.name";
     : > "$dir/local-worktrees.tsv";
 
     # Missing worktree directories leave stale registrations behind. Prune only
@@ -344,10 +367,12 @@ prepare_local_checkout_reset ()
 
 reset_local_checkout ()
 {
-    local dir="$1" root expected remote_head ref branch_section status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
+    local dir="$1" root remote_name expected remote_head ref branch_section status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
     local -a branch_sections=();
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
+    remote_name="$(cat "$dir/local-remote.name" 2>/dev/null || printf origin)";
+    [[ -n "$remote_name" ]] || die "local target remote name is missing from the safety backup";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
     git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || die "local checkout is no longer a Git repository: $root";
     [[ -s "$dir/local-worktrees.tsv" ]] || die "local worktree inventory is missing from the safety backup";
@@ -364,9 +389,9 @@ reset_local_checkout ()
 
     expected="$(cat "$dir/initial-commit.txt")";
     vlog "Resetting local repository: $root";
-    git -C "$root" fetch --prune --no-tags origin >/dev/null 2>&1 || die "could not fetch recreated $REPO into local checkout";
-    remote_head="$(git -C "$root" rev-parse "refs/remotes/origin/$DEFAULT_BRANCH" 2>/dev/null || true)";
-    [[ "$remote_head" == "$expected" ]] || die "local origin/$DEFAULT_BRANCH does not match the prepared initial commit";
+    git -C "$root" fetch --prune --no-tags "$remote_name" >/dev/null 2>&1 || die "could not fetch recreated $REPO into local checkout";
+    remote_head="$(git -C "$root" rev-parse "refs/remotes/$remote_name/$DEFAULT_BRANCH" 2>/dev/null || true)";
+    [[ "$remote_head" == "$expected" ]] || die "local $remote_name/$DEFAULT_BRANCH does not match the prepared initial commit";
 
     # Detach every secondary worktree first so their old branch refs can be
     # removed safely. The worktree directories themselves are preserved.
@@ -389,13 +414,13 @@ reset_local_checkout ()
         [[ -n "$branch_section" ]] || continue;
         git -C "$root" config --local --remove-section "$branch_section" >/dev/null 2>&1 || true;
     done;
-    git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
-      || die "could not set local $DEFAULT_BRANCH to track origin/$DEFAULT_BRANCH";
+    git -C "$root" branch --set-upstream-to="$remote_name/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
+      || die "could not set local $DEFAULT_BRANCH to track $remote_name/$DEFAULT_BRANCH";
 
     while IFS= read -r ref; do
         [[ -n "$ref" ]] || continue;
         case "$ref" in
-            "refs/heads/$DEFAULT_BRANCH"|"refs/remotes/origin/$DEFAULT_BRANCH") continue ;;
+            "refs/heads/$DEFAULT_BRANCH"|"refs/remotes/$remote_name/$DEFAULT_BRANCH") continue ;;
         esac;
         git -C "$root" update-ref -d "$ref" >/dev/null 2>&1 || die "could not remove stale local ref $ref";
     done < <(git -C "$root" for-each-ref --format='%(refname)' refs);
@@ -420,18 +445,18 @@ reset_local_checkout ()
     [[ "$(git -C "$root" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]] || die "local repository still has extra local branches";
     [[ -z "$(git -C "$root" for-each-ref --format='%(refname)' refs/tags)" ]] || die "local repository still has tags";
 
-    unexpected_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs | grep -Fvx "refs/heads/$DEFAULT_BRANCH" | grep -Fvx "refs/remotes/origin/$DEFAULT_BRANCH" || true)";
+    unexpected_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs | grep -Fvx "refs/heads/$DEFAULT_BRANCH" | grep -Fvx "refs/remotes/$remote_name/$DEFAULT_BRANCH" || true)";
     [[ -z "$unexpected_refs" ]] || die "local repository still has unexpected refs: $(printf '%s' "$unexpected_refs" | paste -sd, -)";
 
-    [[ "$(git -C "$root" config --local --get "branch.$DEFAULT_BRANCH.remote" 2>/dev/null || true)" == origin ]] \
-      || die "local $DEFAULT_BRANCH is not configured to track origin";
+    [[ "$(git -C "$root" config --local --get "branch.$DEFAULT_BRANCH.remote" 2>/dev/null || true)" == "$remote_name" ]] \
+      || die "local $DEFAULT_BRANCH is not configured to track $remote_name";
     [[ "$(git -C "$root" config --local --get "branch.$DEFAULT_BRANCH.merge" 2>/dev/null || true)" == "refs/heads/$DEFAULT_BRANCH" ]] \
       || die "local $DEFAULT_BRANCH has an unexpected upstream merge ref";
 
     unexpected_branch_config="$(git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null | grep -Fvx "branch.$DEFAULT_BRANCH.remote" | grep -Fvx "branch.$DEFAULT_BRANCH.merge" || true)";
     [[ -z "$unexpected_branch_config" ]] || die "local repository still has stale branch config: $(printf '%s' "$unexpected_branch_config" | paste -sd, -)";
 
-    vlog "Local repository reset to the fresh initial commit across $expected_count worktree(s). Only $DEFAULT_BRANCH and origin/$DEFAULT_BRANCH remain."
+    vlog "Local repository reset to the fresh initial commit across $expected_count worktree(s). Only $DEFAULT_BRANCH and $remote_name/$DEFAULT_BRANCH remain."
 }
 
 prepare_initial_commit () 
