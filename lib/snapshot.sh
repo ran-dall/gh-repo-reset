@@ -368,55 +368,173 @@ snapshot_app_installations ()
     rm -f "$list"
 }
 
-snapshot_org_bindings () 
-{ 
-    local dir="$1" name group_id config_id enabled;
+org_binding_candidate_worker ()
+{
+    local workdir="$1" idx="$2" kind="$3" endpoint jqexpr;
+    case "$kind" in
+        actions-secret)
+            endpoint="orgs/$OWNER/actions/secrets?per_page=100";
+            jqexpr='.secrets[]? | select(.visibility=="selected") | .name'
+            ;;
+        dependabot-secret)
+            endpoint="orgs/$OWNER/dependabot/secrets?per_page=100";
+            jqexpr='.secrets[]? | select(.visibility=="selected") | .name'
+            ;;
+        codespaces-secret)
+            endpoint="orgs/$OWNER/codespaces/secrets?per_page=100";
+            jqexpr='.secrets[]? | select(.visibility=="selected") | .name'
+            ;;
+        actions-variable)
+            endpoint="orgs/$OWNER/actions/variables?per_page=100";
+            jqexpr='.variables[]? | select(.visibility=="selected") | .name'
+            ;;
+        *)
+            printf 'unknown organization binding candidate type: %s\n' "$kind" > "$workdir/$idx.err";
+            return 2
+            ;;
+    esac;
+    if api --paginate "$endpoint" --jq "$jqexpr" > "$workdir/$idx.out" 2> "$workdir/$idx.err"; then
+        : > "$workdir/$idx.ok";
+        return 0;
+    fi;
+    return 1
+}
+
+org_binding_membership_worker ()
+{
+    local workdir="$1" idx="$2" item="$3" kind name endpoint;
+    IFS=$'\t' read -r kind name <<< "$item";
+    case "$kind" in
+        actions-secret)
+            endpoint="orgs/$OWNER/actions/secrets/$(urlencode "$name")/repositories?per_page=100"
+            ;;
+        dependabot-secret)
+            endpoint="orgs/$OWNER/dependabot/secrets/$(urlencode "$name")/repositories?per_page=100"
+            ;;
+        codespaces-secret)
+            endpoint="orgs/$OWNER/codespaces/secrets/$(urlencode "$name")/repositories?per_page=100"
+            ;;
+        actions-variable)
+            endpoint="orgs/$OWNER/actions/variables/$(urlencode "$name")/repositories?per_page=100"
+            ;;
+        *)
+            printf 'unknown organization binding membership type: %s\n' "$kind" > "$workdir/$idx.err";
+            return 2
+            ;;
+    esac;
+    if api --paginate "$endpoint" --jq '.repositories[]?.id' > "$workdir/$idx.out" 2> "$workdir/$idx.err"; then
+        : > "$workdir/$idx.ok";
+        return 0;
+    fi;
+    return 1
+}
+
+snapshot_org_bindings ()
+{
+    local dir="$1" config_id enabled repo_name kind name label target idx=0;
+    local candidates tasks probes candidate_failed=0 membership_failed=0;
     source "$dir/repo-state.sh";
     [[ "${OWNER_TYPE:-User}" == Organization ]] || return 0;
+
     mkdir -p "$dir/org-bindings";
     : > "$dir/org-bindings/actions-secrets.txt";
     : > "$dir/org-bindings/dependabot-secrets.txt";
     : > "$dir/org-bindings/codespaces-secrets.txt";
     : > "$dir/org-bindings/actions-variables.txt";
     : > "$dir/org-bindings/runner-groups.txt";
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
-        if snapshot_stream "org Actions secret $name repositories" api --paginate "orgs/$OWNER/actions/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\n' "$name" >> "$dir/org-bindings/actions-secrets.txt";
+
+    candidates="$dir/org-bindings/candidate-types.txt";
+    tasks="$dir/org-bindings/membership-probes.tsv";
+    probes="$dir/org-bindings/probes";
+    printf '%s\n' actions-secret dependabot-secret codespaces-secret actions-variable > "$candidates";
+    : > "$tasks";
+    rm -rf "$probes";
+    mkdir -p "$probes/candidates" "$probes/memberships";
+
+    # These four owner-level listings are independent. Fetch them under the same
+    # bounded job budget, then merge their results serially.
+    run_bounded_items "$candidates" org_binding_candidate_worker "$probes/candidates" || candidate_failed=1;
+
+    idx=0;
+    while IFS= read -r kind || [[ -n "$kind" ]]; do
+        [[ -n "$kind" ]] || continue;
+        idx=$((idx+1));
+        case "$kind" in
+            actions-secret) label="org Actions secrets" ;;
+            dependabot-secret) label="org Dependabot secrets" ;;
+            codespaces-secret) label="org Codespaces secrets" ;;
+            actions-variable) label="org Actions variables" ;;
+        esac;
+        if [[ -f "$probes/candidates/$idx.ok" ]]; then
+            record_snapshot_status "$label" captured;
+            while IFS= read -r name || [[ -n "$name" ]]; do
+                [[ -n "$name" ]] || continue;
+                printf '%s\t%s\n' "$kind" "$name" >> "$tasks";
+            done < "$probes/candidates/$idx.out";
+        else
+            record_snapshot_failure "$label" "$probes/candidates/$idx.err";
+            candidate_failed=1;
         fi;
-    done < <(snapshot_stream "org Actions secrets" api --paginate "orgs/$OWNER/actions/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
-        if snapshot_stream "org Dependabot secret $name repositories" api --paginate "orgs/$OWNER/dependabot/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\n' "$name" >> "$dir/org-bindings/dependabot-secrets.txt";
+    done < "$candidates";
+
+    # GitHub exposes selected-repository membership per secret/variable. Those
+    # N requests are unavoidable, so probe them concurrently and merge only
+    # after every worker has finished.
+    if [[ -s "$tasks" ]]; then
+        run_bounded_items "$tasks" org_binding_membership_worker "$probes/memberships" || membership_failed=1;
+    fi;
+
+    idx=0;
+    while IFS=$'\t' read -r kind name || [[ -n "$kind$name" ]]; do
+        [[ -n "$kind" && -n "$name" ]] || continue;
+        idx=$((idx+1));
+        case "$kind" in
+            actions-secret)
+                label="org Actions secret $name repositories";
+                target="$dir/org-bindings/actions-secrets.txt"
+                ;;
+            dependabot-secret)
+                label="org Dependabot secret $name repositories";
+                target="$dir/org-bindings/dependabot-secrets.txt"
+                ;;
+            codespaces-secret)
+                label="org Codespaces secret $name repositories";
+                target="$dir/org-bindings/codespaces-secrets.txt"
+                ;;
+            actions-variable)
+                label="org Actions variable $name repositories";
+                target="$dir/org-bindings/actions-variables.txt"
+                ;;
+        esac;
+        if [[ -f "$probes/memberships/$idx.ok" ]]; then
+            record_snapshot_status "$label" captured;
+            grep -Fxq "$REPO_ID" "$probes/memberships/$idx.out" && printf '%s\n' "$name" >> "$target";
+        else
+            record_snapshot_failure "$label" "$probes/memberships/$idx.err";
+            membership_failed=1;
         fi;
-    done < <(snapshot_stream "org Dependabot secrets" api --paginate "orgs/$OWNER/dependabot/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
-        if snapshot_stream "org Codespaces secret $name repositories" api --paginate "orgs/$OWNER/codespaces/secrets/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\n' "$name" >> "$dir/org-bindings/codespaces-secrets.txt";
-        fi;
-    done < <(snapshot_stream "org Codespaces secrets" api --paginate "orgs/$OWNER/codespaces/secrets?per_page=100" --jq '.secrets[]? | select(.visibility=="selected") | .name');
-    while IFS= read -r name; do
-        [[ -n "$name" ]] || continue;
-        if snapshot_stream "org Actions variable $name repositories" api --paginate "orgs/$OWNER/actions/variables/$(urlencode "$name")/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\n' "$name" >> "$dir/org-bindings/actions-variables.txt";
-        fi;
-    done < <(snapshot_stream "org Actions variables" api --paginate "orgs/$OWNER/actions/variables?per_page=100" --jq '.variables[]? | select(.visibility=="selected") | .name');
+    done < "$tasks";
+
+    # Remove the runner-group N+1 entirely. GitHub can filter the organization
+    # runner-group list server-side to groups visible to this repository.
+    repo_name="${REPO#*/}";
+    snapshot_capture "$dir/org-bindings/runner-groups.txt" "org runner groups visible to repository" \
+      api --paginate "orgs/$OWNER/actions/runner-groups?visible_to_repository=$(urlencode "$repo_name")&per_page=100" \
+      --jq '.runner_groups[]? | select(.visibility=="selected") | .id';
+
     enabled="$(snapshot_value "org Actions repository policy" "" api "orgs/$OWNER/actions/permissions" --jq '.enabled_repositories // ""')";
     if [[ "$enabled" == selected ]] && snapshot_stream "org Actions selected repositories" api --paginate "orgs/$OWNER/actions/permissions/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
         : > "$dir/org-bindings/actions-enabled-selected";
     fi;
-    while IFS= read -r group_id; do
-        [[ -n "$group_id" ]] || continue;
-        if snapshot_stream "runner group $group_id repositories" api --paginate "orgs/$OWNER/actions/runner-groups/$group_id/repositories?per_page=100" --jq '.repositories[]?.id' | grep -Fxq "$REPO_ID"; then
-            printf '%s\n' "$group_id" >> "$dir/org-bindings/runner-groups.txt";
-        fi;
-    done < <(snapshot_stream "org runner groups" api --paginate "orgs/$OWNER/actions/runner-groups?per_page=100" --jq '.runner_groups[]? | select(.visibility=="selected") | .id');
+
     config_id="$(snapshot_value_optional_404 "code security configuration" "" api "repos/$REPO/code-security-configuration" --jq 'select(.status=="attached") | .configuration.id // empty')";
     if [[ -n "$config_id" ]]; then
         printf '%s\n' "$config_id" > "$dir/org-bindings/code-security-configuration-id";
     fi;
+
+    rm -rf "$probes";
+    rm -f "$candidates" "$tasks";
+    (( candidate_failed == 0 && membership_failed == 0 )) || record_snapshot_status "organization selected-repository bindings" failed;
     return 0
 }
 
