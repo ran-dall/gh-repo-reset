@@ -53,6 +53,7 @@ grep -q 'root-push-ok' "$TMP/git.log"
 grep -q 'actions/permissions' "$TMP/gh.log"
 grep -q 'properties/values' "$TMP/gh.log"
 grep -q 'user/installations/77/repositories/123' "$TMP/gh.log"
+[[ "$(grep -Fc -- '--jq .id' "$TMP/gh.log")" -eq 1 ]]
 grep -q 'Deleting 1 GitHub package(s)...' "$TMP/err"
 ! grep -q 'Deleting GitHub package container/repo' "$TMP/err"
 grep -q 'Done. Safety backup:' "$TMP/err"
