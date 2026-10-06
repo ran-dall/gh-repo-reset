@@ -269,8 +269,8 @@ test_packages() (
   git init -q -b main "$source"
   mkdir -p "$source/.github/workflows"
   cat > "$source/image.ts" <<'SRC_EOF'
-const imageRepository = "ghcr.io/kaiju-ind/twenty";
-const dependency = "ghcr.io/kaiju-ind/shared-base:latest";
+const imageRepository = "ghcr.io/fixture-org/demo-app";
+const dependency = "ghcr.io/fixture-org/shared-base:latest";
 SRC_EOF
   cat > "$source/.github/workflows/release.yml" <<'YAML_EOF'
 permissions:
@@ -283,11 +283,11 @@ YAML_EOF
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
-  REPO=Kaiju-Ind/twenty
+  REPO=Fixture-Org/demo-app
   BACKUP_DIR="$tmp"
   cat > "$tmp/repo-state.sh" <<'STATE_EOF'
-REPO=Kaiju-Ind/twenty
-OWNER=Kaiju-Ind
+REPO=Fixture-Org/demo-app
+OWNER=Fixture-Org
 OWNER_TYPE=Organization
 REPO_ID=123
 DEFAULT_BRANCH=main
@@ -298,7 +298,7 @@ STATE_EOF
   source ./lib/git.sh
 
   snapshot_package_actions_access_hints "$tmp"
-  grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
+  grep -Fq $'container\tdemo-app\t' "$tmp/package-actions-access.tsv"
   grep -Fq $'container\tshared-base\t' "$tmp/package-actions-access.tsv"
 
   DELETE_FAIL=0
@@ -307,19 +307,19 @@ STATE_EOF
   api() {
     local args=" $* "
     printf '%s\n' "$*" >> "$tmp/package-api.log"
-    if [[ "$args" == *" --paginate orgs/Kaiju-Ind/packages?package_type=container&per_page=100 --jq .[].name "* ]]; then
+    if [[ "$args" == *" --paginate orgs/Fixture-Org/packages?package_type=container&per_page=100 --jq .[].name "* ]]; then
       if (( PACKAGE_LIST_FAIL )); then
         printf 'HTTP 500: package enumeration failed\n' >&2
         return 1
       fi
-      printf 'twenty\ntwenty-worker\nshared-base\n'
+      printf 'demo-app\ndemo-worker\nshared-base\n'
       return 0
     fi
-    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/twenty --jq .repository.id // empty "* ]]; then
+    if [[ "$args" == *" orgs/Fixture-Org/packages/container/demo-app --jq .repository.id // empty "* ]]; then
       sleep 0.05
       return 0
     fi
-    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/twenty-worker --jq .repository.id // empty "* ]]; then
+    if [[ "$args" == *" orgs/Fixture-Org/packages/container/demo-worker --jq .repository.id // empty "* ]]; then
       if (( PACKAGE_DETAIL_FAIL )); then
         printf 'HTTP 500: package detail failed\n' >&2
         return 1
@@ -327,7 +327,7 @@ STATE_EOF
       printf '123\n'
       return 0
     fi
-    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/shared-base --jq .repository.id // empty "* ]]; then
+    if [[ "$args" == *" orgs/Fixture-Org/packages/container/shared-base --jq .repository.id // empty "* ]]; then
       printf '999\n'
       return 0
     fi
@@ -343,19 +343,19 @@ STATE_EOF
   }
 
   GH_REPO_RESET_JOBS=2 snapshot_package_reset_targets "$tmp"
-  grep -Fqx $'container package twenty repository association\tcaptured' "$tmp/snapshot-status.tsv"
-  grep -Fqx $'container package twenty-worker repository association\tcaptured' "$tmp/snapshot-status.tsv"
+  grep -Fqx $'container package demo-app repository association\tcaptured' "$tmp/snapshot-status.tsv"
+  grep -Fqx $'container package demo-worker repository association\tcaptured' "$tmp/snapshot-status.tsv"
   grep -Fqx $'container package shared-base repository association\tcaptured' "$tmp/snapshot-status.tsv"
   grep -Fqx $'GitHub package reset targets\tcaptured' "$tmp/snapshot-status.tsv"
-  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  grep -Fxq $'container\ttwenty-worker' "$tmp/package-reset-targets.tsv"
+  grep -Fxq $'container\tdemo-app' "$tmp/package-reset-targets.tsv"
+  grep -Fxq $'container\tdemo-worker' "$tmp/package-reset-targets.tsv"
   ! grep -Fq 'shared-base' "$tmp/package-reset-targets.tsv"
   [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 2 ]]
 
   delete_reset_packages "$tmp"
-  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
-  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty-worker' "$tmp/package-api.log"
-  ! grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/shared-base' "$tmp/package-api.log"
+  grep -Fq -- '--method DELETE orgs/Fixture-Org/packages/container/demo-app' "$tmp/package-api.log"
+  grep -Fq -- '--method DELETE orgs/Fixture-Org/packages/container/demo-worker' "$tmp/package-api.log"
+  ! grep -Fq -- '--method DELETE orgs/Fixture-Org/packages/container/shared-base' "$tmp/package-api.log"
   [[ ! -s "$tmp/package-delete-failures.tsv" ]]
 
   DELETE_FAIL=1
@@ -363,8 +363,8 @@ STATE_EOF
     printf 'package deletion should have failed\n' >&2
     return 1
   fi
-  grep -Fxq $'container\ttwenty' "$tmp/package-delete-failures.tsv"
-  grep -Fxq $'container\ttwenty-worker' "$tmp/package-delete-failures.tsv"
+  grep -Fxq $'container\tdemo-app' "$tmp/package-delete-failures.tsv"
+  grep -Fxq $'container\tdemo-worker' "$tmp/package-delete-failures.tsv"
   grep -Fq 'HTTP 403' "$tmp/package-delete-errors.log"
 
   PACKAGE_LIST_FAIL=1
@@ -373,26 +373,26 @@ STATE_EOF
   GH_REPO_RESET_JOBS=2 snapshot_package_reset_targets "$tmp"
   grep -Fxq 'owner container packages' "$tmp/snapshot-failures.txt"
   grep -Fqx $'owner container packages\tfailed' "$tmp/snapshot-status.tsv"
-  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  ! grep -Fq 'twenty-worker' "$tmp/package-reset-targets.tsv"
+  grep -Fxq $'container\tdemo-app' "$tmp/package-reset-targets.tsv"
+  ! grep -Fq 'demo-worker' "$tmp/package-reset-targets.tsv"
 
   PACKAGE_LIST_FAIL=0
   PACKAGE_DETAIL_FAIL=1
   : > "$tmp/snapshot-failures.txt"
   : > "$tmp/snapshot-errors.log"
   GH_REPO_RESET_JOBS=2 snapshot_package_reset_targets "$tmp"
-  grep -Fxq 'container package twenty-worker repository association' "$tmp/snapshot-failures.txt"
-  grep -Fqx $'container package twenty-worker repository association\tfailed' "$tmp/snapshot-status.tsv"
+  grep -Fxq 'container package demo-worker repository association' "$tmp/snapshot-failures.txt"
+  grep -Fqx $'container package demo-worker repository association\tfailed' "$tmp/snapshot-status.tsv"
   grep -Fqx $'GitHub package reset targets\tfailed' "$tmp/snapshot-status.tsv"
-  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  ! grep -Fq 'twenty-worker' "$tmp/package-reset-targets.tsv"
+  grep -Fxq $'container\tdemo-app' "$tmp/package-reset-targets.tsv"
+  ! grep -Fq 'demo-worker' "$tmp/package-reset-targets.tsv"
   grep -Fq 'HTTP 500: package detail failed' "$tmp/snapshot-errors.log"
 
   : > "$tmp/manual-items.tsv"
   record_package_actions_access_followup "$tmp"
   grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
   grep -Fq 'container/shared-base' "$tmp/manual-items.tsv"
-  ! grep -Fq 'container/twenty' "$tmp/manual-items.tsv"
+  ! grep -Fq 'container/demo-app' "$tmp/manual-items.tsv"
   echo 'packages: ok'
 )
 
@@ -466,7 +466,6 @@ test_environment() (
   trap 'rm -rf "$tmp"' EXIT
 
   PROGRAM=gh-repo-reset-test
-  API_VERSION=2026-03-10
   VERBOSE=0
   REPO=owner/repo
   BACKUP_DIR="$tmp"
