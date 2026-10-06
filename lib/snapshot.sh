@@ -196,7 +196,6 @@ snapshot_environments ()
         write_assignment "$envdir/state.sh" ENV_KEY "$encoded";
 
         snapshot_json_required "$envdir/environment-restore.json" "repos/$REPO/environments/$encoded" '(.protection_rules // []) as $rules | ([$rules[]? | select(.type=="wait_timer")][0]) as $wait | ([$rules[]? | select(.type=="required_reviewers")][0]) as $review | ({deployment_branch_policy:(.deployment_branch_policy // null)} + (if $wait == null then {} else {wait_timer:($wait.wait_timer // 0)} end) + (if $review == null then {} else {prevent_self_review:($review.prevent_self_review // false),reviewers:([$review.reviewers[]? | {type:.type,id:.reviewer.id}])} end))';
-        snapshot_capture "$envdir/environment.json" "environment $env" api "repos/$REPO/environments/$encoded";
         snapshot_capture "$envdir/custom-deployment-protection-rules.tsv" "environment $env custom deployment protection rules" api --paginate "repos/$REPO/environments/$encoded/deployment_protection_rules?per_page=100" --jq '.custom_deployment_protection_rules[]? | [.app.id, (.app.slug // "")] | @tsv';
         snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv" "environment $env deployment branch policies" api "repos/$REPO/environments/$encoded/deployment-branch-policies?per_page=100" \
           --jq '.branch_policies[]? | [.name, (.type // "branch")] | @tsv' || true;
