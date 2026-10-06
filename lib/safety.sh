@@ -1,14 +1,5 @@
 # Destructive-operation guards and detection of non-round-trippable state.
 
-file_has_secret_names () 
-{ 
-    local f;
-    for f in "$BACKUP_DIR"/secrets/*.names "$BACKUP_DIR"/environments/*/actions-secret-names.txt; do
-        [[ -f "$f" && -s "$f" ]] && return 0;
-    done;
-    return 1
-}
-
 has_irreplaceable_metadata () 
 { 
     local found=0 first stars forks is_fork f secret_count webhook_count;
