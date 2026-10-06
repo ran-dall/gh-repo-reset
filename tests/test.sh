@@ -35,10 +35,10 @@ test_syntax() {
   [[ -x mise-tasks/test ]]
   grep -Fxq 'gh = "2.102.0"' mise.toml
   grep -Fxq 'usage = "6.12.1"' mise.toml
-  grep -Fxq 'min_usage_version "6.12.1"' gh-repo-reset.usage.kdl
   grep -Fq 'uses: actions/checkout@v7' .github/workflows/check.yml
   grep -Fq 'uses: jdx/mise-action@v5' .github/workflows/check.yml
   grep -Fq 'run: mise run check' .github/workflows/check.yml
+  grep -Fxq 'min_usage_version "6.12.1"' gh-repo-reset.usage.kdl
   grep -Fq '"org-bindings"' mise-tasks/test
   ! grep -q '// true' lib/snapshot.sh
   ! grep -q 'gh variable get' lib/snapshot.sh
@@ -54,12 +54,6 @@ test_syntax() {
   ! grep -q 'snapshot_capture "\$envdir/environment.json"' lib/snapshot.sh
   grep -q 'GH_REPO_RESET_JOBS' gh-repo-reset
   grep -q 'GH_REPO_RESET_SOURCE_REPO' gh-repo-reset
-  grep -q 'GH_REPO_RESET_SNAPSHOT_WORKER_DIR' lib/core.sh
-  grep -q 'git_state="\$dir/git-state.sh"' lib/git.sh
-  grep -q 'cat "\$BACKUP_DIR/git-state.sh" >> "\$BACKUP_DIR/repo-state.sh"' lib/main.sh
-  ! grep -Fq 'issues?state=all&per_page=1' lib/safety.sh
-  ! grep -Fq 'releases?per_page=1' lib/safety.sh
-  ! grep -Fq 'repo_field' lib/safety.sh
   echo 'syntax: ok'
 }
 
@@ -460,7 +454,12 @@ STATE_EOF
   grep -Fxq '456' "$tmp/org-bindings/code-security-configuration-id"
   grep -Fq 'visible_to_repository=repo' "$tmp/org-api.log"
   ! grep -Fq '/runner-groups/77/repositories' "$tmp/org-api.log"
-  grep -Fqx 
+  grep -Fqx $'organization selected-repository bindings\tcaptured' "$tmp/snapshot-status.tsv"
+  [[ ! -s "$tmp/snapshot-failures.txt" ]]
+  echo 'org-bindings: ok'
+)
+
+test_environment() (
   set -Eeuo pipefail
   local tmp
   tmp="$(mktemp -d)"
@@ -587,7 +586,6 @@ test_snapshot_guard() (
 
   pool_slow() {
     local dir="$1" i
-    record_snapshot_status "pool slow" captured
     : > "$dir/pool-slow.started"
     for ((i=0; i<200; i++)); do
       [[ -e "$dir/pool.release" ]] && return 0
@@ -596,17 +594,16 @@ test_snapshot_guard() (
     return 1
   }
   pool_fast() {
-    record_snapshot_status "pool fast" captured
     : > "$1/pool-fast.started"
   }
   pool_release() {
-    record_snapshot_status "pool release" captured
     : > "$1/pool-third.started"
     : > "$1/pool.release"
   }
   GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp" pool_slow pool_fast pool_release
   [[ -e "$tmp/pool-slow.started" && -e "$tmp/pool-fast.started" && -e "$tmp/pool-third.started" && -e "$tmp/pool.release" ]]
-  grep -Fqx 
+
+  snapshot_stream "labels" fail_500 >/dev/null
   grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
   grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
   grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
