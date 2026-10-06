@@ -54,15 +54,20 @@ grep -q 'actions/permissions' "$TMP/gh.log"
 grep -q 'properties/values' "$TMP/gh.log"
 grep -q 'user/installations/77/repositories/123' "$TMP/gh.log"
 [[ "$(grep -Fc -- '--jq .id' "$TMP/gh.log")" -eq 1 ]]
-grep -q 'Deleting 1 GitHub package(s)...' "$TMP/err"
+! grep -q 'Deleting 1 GitHub package(s)...' "$TMP/err"
 ! grep -q 'Deleting GitHub package container/repo' "$TMP/err"
-grep -q 'Done. Safety backup:' "$TMP/err"
+grep -q 'Preparing reset: owner/repo' "$TMP/err"
+! grep -q 'Snapshotting repository state' "$TMP/err"
+grep -q 'Plan:' "$TMP/err"
+grep -q 'Recreating owner/repo' "$TMP/err"
+grep -q 'Restoring repository state' "$TMP/err"
+grep -q 'Done. Backup:' "$TMP/err"
 
 BACKUP="$(find "$TMP/state/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
 ROOT="$(cat "$BACKUP/initial-commit.txt")"
 PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" MOCK_CONFIG=1 MOCK_REMOTE_SHA="$ROOT" ./gh-repo-reset --resume-from "$BACKUP" --no-open >"$TMP/resume.out" 2>"$TMP/resume.err"
 grep -q 'Resuming reset: owner/repo' "$TMP/resume.err"
 ! grep -q 'Detected configuration restore completed.' "$TMP/resume.err"
-grep -q 'Done. Safety backup:' "$TMP/resume.err"
+grep -q 'Done. Backup:' "$TMP/resume.err"
 
 echo 'mock reset: ok'
