@@ -2,7 +2,7 @@
 
 snapshot_git_backup ()
 {
-    local dir="$1";
+    local dir="$1" git_state;
     vlog "Creating full local mirror backup...";
     gh auth setup-git > /dev/null;
     if (( VERBOSE )); then
@@ -11,19 +11,21 @@ snapshot_git_backup ()
         die "could not create the Git mirror backup";
     fi;
     source "$dir/repo-state.sh";
-    write_assignment "$dir/repo-state.sh" LFS_USED false;
-    write_assignment "$dir/repo-state.sh" LFS_BACKUP none;
+    git_state="$dir/git-state.sh";
+    : > "$git_state";
+    write_assignment "$git_state" LFS_USED false;
+    write_assignment "$git_state" LFS_BACKUP none;
     if git -C "$dir/git.git" show "refs/heads/$DEFAULT_BRANCH:.gitattributes" 2> /dev/null | grep -Eq 'filter=lfs|filter[[:space:]]*=[[:space:]]*lfs'; then
-        write_assignment "$dir/repo-state.sh" LFS_USED true;
+        write_assignment "$git_state" LFS_USED true;
         if git lfs version > /dev/null 2>&1; then
             if git -C "$dir/git.git" lfs fetch --all origin; then
-                write_assignment "$dir/repo-state.sh" LFS_BACKUP complete;
+                write_assignment "$git_state" LFS_BACKUP complete;
             else
-                write_assignment "$dir/repo-state.sh" LFS_BACKUP failed;
+                write_assignment "$git_state" LFS_BACKUP failed;
                 warn "Git LFS is used but the LFS object backup failed";
             fi;
         else
-            write_assignment "$dir/repo-state.sh" LFS_BACKUP missing_git_lfs;
+            write_assignment "$git_state" LFS_BACKUP missing_git_lfs;
             warn "Git LFS is used but git-lfs is not installed; LFS objects are NOT backed up";
         fi;
     fi;
