@@ -297,6 +297,41 @@ detect_local_target_checkout ()
     printf '%s\n' "$root"
 }
 
+validate_prunable_worktrees ()
+{
+    local root="$1" line wt="" prunable=0;
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            "worktree "*)
+                if (( prunable )) && [[ -n "$wt" && ( -e "$wt" || -L "$wt" ) ]]; then
+                    warn "Linked worktree metadata is broken for existing path: $wt";
+                    return 1;
+                fi;
+                wt="${line#worktree }";
+                prunable=0;
+                ;;
+            "prunable "*)
+                prunable=1;
+                ;;
+            "")
+                if (( prunable )) && [[ -n "$wt" && ( -e "$wt" || -L "$wt" ) ]]; then
+                    warn "Linked worktree metadata is broken for existing path: $wt";
+                    return 1;
+                fi;
+                wt="";
+                prunable=0;
+                ;;
+        esac;
+    done < <(git -C "$root" worktree list --porcelain 2>/dev/null);
+
+    if (( prunable )) && [[ -n "$wt" && ( -e "$wt" || -L "$wt" ) ]]; then
+        warn "Linked worktree metadata is broken for existing path: $wt";
+        return 1;
+    fi;
+    return 0
+}
+
 prepare_local_checkout_reset ()
 {
     local dir="$1" root remote_name status wt head idx=0 dirty=0;
@@ -306,9 +341,10 @@ prepare_local_checkout_reset ()
     printf '%s\n' "$remote_name" > "$dir/local-remote.name";
     : > "$dir/local-worktrees.tsv";
 
-    # Missing worktree directories leave stale registrations behind. Prune only
-    # entries Git already considers removable before deciding which live
-    # worktrees must be inspected and reset.
+    # Missing worktree directories leave stale registrations behind. Before
+    # pruning, reject any prunable registration whose path still exists: that
+    # indicates broken metadata rather than a safely deleted stale worktree.
+    validate_prunable_worktrees "$root" || return 1;
     if ! git -C "$root" worktree prune --expire=now >/dev/null 2>&1; then
         warn "Could not prune stale worktree registrations: $root";
         return 1;
