@@ -1,7 +1,7 @@
 # Git mirror backup, fresh root-commit creation, repository creation/push, and wiki restore.
 
-snapshot_git_and_metadata () 
-{ 
+snapshot_git_backup ()
+{
     local dir="$1";
     vlog "Creating full local mirror backup...";
     gh auth setup-git > /dev/null;
@@ -37,14 +37,19 @@ snapshot_git_and_metadata ()
             rm -rf "$dir/wiki.git";
         fi;
     fi;
+    snapshot_package_actions_access_hints "$dir"
+}
+
+snapshot_history_metadata ()
+{
+    local dir="$1";
+    source "$dir/repo-state.sh";
     snapshot_api "$dir/issues.json" "repos/$REPO/issues?state=all&per_page=100";
     snapshot_api_optional_404 "$dir/pulls.json" "repos/$REPO/pulls?state=all&per_page=100";
     snapshot_api "$dir/releases.json" "repos/$REPO/releases?per_page=100";
     if [[ "${HAS_DISCUSSIONS:-false}" == true ]]; then
         snapshot_api "$dir/discussions.json" "repos/$REPO/discussions?per_page=100";
-    fi;
-    snapshot_package_actions_access_hints "$dir"
-    snapshot_package_reset_targets "$dir"
+    fi
 }
 
 snapshot_package_actions_access_hints ()
@@ -124,9 +129,21 @@ record_package_actions_access_followup ()
     record_manual_item package_actions_access "review GitHub Packages Manage Actions access for: $(join_comma "${labels[@]}"); GitHub does not expose prior repository grants through a supported API"
 }
 
+package_repository_probe_worker ()
+{
+    local workdir="$1" idx="$2" name="$3" package_base="$4";
+    if api "$package_base/$(urlencode "$name")" --jq '.repository.id // empty' \
+      > "$workdir/$idx.out" 2> "$workdir/$idx.err"; then
+        : > "$workdir/$idx.ok";
+        return 0;
+    fi;
+    return 1
+}
+
 snapshot_package_reset_targets ()
 {
     local dir="$1" out repo_name list_endpoint package_base name linked_repo_id;
+    local probes idx=0 probe_failed=0 label;
     source "$dir/repo-state.sh";
     out="$dir/package-reset-targets.tsv";
     repo_name="${REPO#*/}";
@@ -145,23 +162,40 @@ snapshot_package_reset_targets ()
         package_base="users/$OWNER/packages/container";
     fi;
 
-    # Repository linkage is the authoritative provenance signal for containers
-    # published from this repository. Enumerate owner-scoped containers, fetch
-    # each package detail, and keep only packages linked to this repository ID.
+    # GitHub's owner package listing does not expose repository linkage. Fetch
+    # the package details concurrently, but isolate worker output and merge it
+    # serially so the shared snapshot manifests remain race-free.
     snapshot_capture "$dir/container-package-names.txt" "owner container packages" \
       api --paginate "$list_endpoint" --jq '.[].name';
     [[ -f "$dir/container-package-names.txt" ]] || return 0;
 
-    while IFS= read -r name; do
-            [[ -n "$name" ]] || continue;
-            linked_repo_id="$(snapshot_value "container package $name repository association" "" \
-              api "$package_base/$(urlencode "$name")" --jq '.repository.id // empty')";
+    probes="$dir/package-repository-probes";
+    rm -rf "$probes";
+    mkdir -p "$probes";
+    run_bounded_items "$dir/container-package-names.txt" package_repository_probe_worker "$probes" "$package_base" || probe_failed=1;
+
+    while IFS= read -r name || [[ -n "$name" ]]; do
+        [[ -n "$name" ]] || continue;
+        idx=$((idx+1));
+        label="container package $name repository association";
+        if [[ -f "$probes/$idx.ok" ]]; then
+            record_snapshot_status "$label" captured;
+            linked_repo_id="$(cat "$probes/$idx.out")";
             [[ -n "$linked_repo_id" && "$linked_repo_id" == "$REPO_ID" ]] || continue;
             printf 'container\t%s\n' "$name" >> "$out";
+        else
+            record_snapshot_failure "$label" "$probes/$idx.err";
+            probe_failed=1;
+        fi;
     done < "$dir/container-package-names.txt";
 
+    rm -rf "$probes";
     sort -u "$out" -o "$out";
-    record_snapshot_status "GitHub package reset targets" captured
+    if (( probe_failed )); then
+        record_snapshot_status "GitHub package reset targets" failed;
+    else
+        record_snapshot_status "GitHub package reset targets" captured;
+    fi
 }
 
 delete_reset_packages ()
