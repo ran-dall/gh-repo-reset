@@ -195,6 +195,8 @@ YAML_EOF
   BACKUP_DIR="$tmp"
   cat > "$tmp/repo-state.sh" <<'STATE_EOF'
 REPO=Kaiju-Ind/twenty
+OWNER=Kaiju-Ind
+OWNER_TYPE=Organization
 DEFAULT_BRANCH=main
 STATE_EOF
 
@@ -205,6 +207,33 @@ STATE_EOF
   snapshot_package_actions_access_hints "$tmp"
   grep -Fq $'container\ttailscale-bunny\t' "$tmp/package-actions-access.tsv"
   grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
+
+  snapshot_package_reset_targets "$tmp"
+  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
+  ! grep -Fq 'tailscale-bunny' "$tmp/package-reset-targets.tsv"
+
+  DELETE_FAIL=0
+  api() {
+    printf '%s\n' "$*" >> "$tmp/package-api.log"
+    if (( DELETE_FAIL )); then
+      printf 'HTTP 403: package admin permission required\n' >&2
+      return 1
+    fi
+    return 0
+  }
+
+  delete_reset_packages "$tmp"
+  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
+  ! grep -Fq 'tailscale-bunny' "$tmp/package-api.log"
+  [[ ! -s "$tmp/package-delete-failures.tsv" ]]
+
+  DELETE_FAIL=1
+  if delete_reset_packages "$tmp"; then
+    printf 'package deletion should have failed\n' >&2
+    return 1
+  fi
+  grep -Fxq $'container\ttwenty' "$tmp/package-delete-failures.tsv"
+  grep -Fq 'HTTP 403' "$tmp/package-delete-errors.log"
 
   record_package_actions_access_followup "$tmp"
   grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
