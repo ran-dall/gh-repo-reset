@@ -153,14 +153,15 @@ gh_repo_reset_main() {
 
   save_repo_state "$BACKUP_DIR"
 
-  # The full Git mirror is often the longest single operation. Run it for the
-  # whole API snapshot window instead of making later API batches wait for it.
-  snapshot_git_and_metadata "$BACKUP_DIR" &
+  # The Git mirror is often the longest single operation and does not consume
+  # the API probe pool. Keep it running while all GitHub API reads share one
+  # bounded concurrency budget.
+  snapshot_git_backup "$BACKUP_DIR" &
   local git_snapshot_pid=$!
 
-  # Independent API reads are intentionally bounded: enough concurrency to hide
-  # network latency without creating an aggressive burst against GitHub APIs.
+  # Broad independent API reads share the rolling snapshot pool.
   run_snapshot_jobs "$BACKUP_DIR" \
+    snapshot_history_metadata \
     snapshot_environments \
     snapshot_labels \
     snapshot_actions_settings \
@@ -173,16 +174,20 @@ gh_repo_reset_main() {
     snapshot_actions_policies \
     snapshot_autolinks \
     snapshot_app_installations \
-    snapshot_org_bindings \
     snapshot_custom_properties \
     snapshot_pages \
     snapshot_webhooks
 
+  # N+1 membership/detail surfaces run as dedicated bounded stages instead of
+  # nesting another pool inside the broad snapshot pool.
+  snapshot_org_bindings "$BACKUP_DIR"
+  snapshot_package_reset_targets "$BACKUP_DIR"
+
   if wait "$git_snapshot_pid"; then
-    record_snapshot_status "Git and metadata mirror" captured
+    record_snapshot_status "Git mirror backup" captured
   else
-    record_snapshot_failure "Git and metadata mirror"
-    die "Git and metadata snapshot failed"
+    record_snapshot_failure "Git mirror backup"
+    die "Git mirror backup failed"
   fi
 
   if [[ ! -s "$BACKUP_DIR/snapshot-status.tsv" ]]; then
