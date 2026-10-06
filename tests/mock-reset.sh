@@ -5,7 +5,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/state" "$TMP/source"
 /usr/bin/git -C "$TMP/source" init -b main >/dev/null
 printf 'first\n' >"$TMP/source/app.txt"
-/usr/bin/git -C "$TMP/source" add app.txt
+printf 'FROM ghcr.io/owner/repo:latest\n' >"$TMP/source/Dockerfile"
+/usr/bin/git -C "$TMP/source" add app.txt Dockerfile
 /usr/bin/git -C "$TMP/source" -c user.name=Tester -c user.email=test@example.com commit -m first >/dev/null
 printf 'second\n' >>"$TMP/source/app.txt"
 /usr/bin/git -C "$TMP/source" add app.txt
@@ -43,6 +44,10 @@ chmod +x "$TMP/bin/git"
 export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_GIT_LOG="$TMP/git.log"
 PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" MOCK_CONFIG=1 ./gh-repo-reset owner/repo --yes --allow-metadata-loss --no-open >"$TMP/out" 2>"$TMP/err"
 grep -q 'repo delete owner/repo --yes' "$TMP/gh.log"
+grep -q -- '--method DELETE users/owner/packages/container/repo' "$TMP/gh.log"
+package_delete_line="$(grep -n -- '--method DELETE users/owner/packages/container/repo' "$TMP/gh.log" | head -1 | cut -d: -f1)"
+repo_delete_line="$(grep -n 'repo delete owner/repo --yes' "$TMP/gh.log" | head -1 | cut -d: -f1)"
+(( package_delete_line < repo_delete_line ))
 grep -q 'repo create owner/repo --private' "$TMP/gh.log"
 grep -q 'root-push-ok' "$TMP/git.log"
 grep -q 'actions/permissions' "$TMP/gh.log"
