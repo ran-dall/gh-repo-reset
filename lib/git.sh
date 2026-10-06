@@ -207,6 +207,104 @@ delete_reset_packages ()
     (( failed == 0 ))
 }
 
+github_repo_from_remote_url ()
+{
+    local url="$1" path;
+    case "$url" in
+        git@github.com:*) path="${url#git@github.com:}" ;;
+        ssh://git@github.com/*) path="${url#ssh://git@github.com/}" ;;
+        https://github.com/*|http://github.com/*) path="${url#*github.com/}" ;;
+        *) return 1 ;;
+    esac;
+    path="${path#/}";
+    path="${path%.git}";
+    [[ "$path" == */* ]] || return 1;
+    printf '%s\n' "$path"
+}
+
+detect_local_target_checkout ()
+{
+    local root remote remote_repo;
+    root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1;
+    remote="$(git -C "$root" remote get-url origin 2>/dev/null)" || return 1;
+    remote_repo="$(github_repo_from_remote_url "$remote" 2>/dev/null)" || return 1;
+    [[ "${remote_repo,,}" == "${REPO,,}" ]] || return 1;
+    printf '%s\n' "$root"
+}
+
+prepare_local_checkout_reset ()
+{
+    local dir="$1" root status worktree_count;
+    root="$(detect_local_target_checkout 2>/dev/null)" || return 0;
+    printf '%s\n' "$root" > "$dir/local-checkout.path";
+
+    if (( ${DRY_RUN:-0} )); then
+        log "Would reset local checkout: $root";
+        status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
+        [[ -z "$status" ]] || warn "Local checkout is dirty; a real reset would refuse to modify it.";
+        return 0;
+    fi;
+
+    status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
+    if [[ -n "$status" ]]; then
+        warn "Local checkout is dirty; refusing destructive reset: $root";
+        return 1;
+    fi;
+
+    worktree_count="$(git -C "$root" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)";
+    if [[ "$worktree_count" -ne 1 ]]; then
+        warn "Local checkout has $worktree_count worktrees; refusing to rewrite local refs: $root";
+        return 1;
+    fi;
+
+    rm -rf "$dir/local.git";
+    if ! git clone --mirror --no-hardlinks "$root" "$dir/local.git" >/dev/null 2>&1; then
+        warn "Could not back up local checkout refs: $root";
+        return 1;
+    fi;
+    record_snapshot_status "local checkout backup" captured;
+    log "Backed up local checkout refs: $root";
+    return 0
+}
+
+reset_local_checkout ()
+{
+    local dir="$1" root expected remote_head ref status;
+    [[ -s "$dir/local-checkout.path" ]] || return 0;
+    root="$(cat "$dir/local-checkout.path")";
+    [[ -d "$root" ]] || die "local checkout no longer exists: $root";
+    git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || die "local checkout is no longer a Git repository: $root";
+
+    status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
+    [[ -z "$status" ]] || die "local checkout became dirty during reset; refusing to overwrite it: $root";
+
+    expected="$(cat "$dir/initial-commit.txt")";
+    log "Resetting local checkout: $root";
+    git -C "$root" fetch --prune --no-tags origin >/dev/null 2>&1 || die "could not fetch recreated $REPO into local checkout";
+    remote_head="$(git -C "$root" rev-parse "refs/remotes/origin/$DEFAULT_BRANCH" 2>/dev/null || true)";
+    [[ "$remote_head" == "$expected" ]] || die "local origin/$DEFAULT_BRANCH does not match the prepared initial commit";
+
+    git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
+    git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
+
+    while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue;
+        case "$ref" in
+            "refs/heads/$DEFAULT_BRANCH"|"refs/remotes/origin/$DEFAULT_BRANCH") continue ;;
+        esac;
+        git -C "$root" update-ref -d "$ref" >/dev/null 2>&1 || die "could not remove stale local ref $ref";
+    done < <(git -C "$root" for-each-ref --format='%(refname)' refs);
+
+    git -C "$root" reflog expire --expire=now --all >/dev/null 2>&1 || true;
+    git -C "$root" gc --prune=now >/dev/null 2>&1 || true;
+
+    [[ "$(git -C "$root" rev-parse HEAD)" == "$expected" ]] || die "local checkout HEAD does not match the fresh initial commit";
+    [[ "$(git -C "$root" rev-list --parents -n1 HEAD | awk '{print NF-1}')" -eq 0 ]] || die "local checkout still has parent history";
+    [[ "$(git -C "$root" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]] || die "local checkout still has extra local branches";
+    [[ -z "$(git -C "$root" for-each-ref --format='%(refname)' refs/tags)" ]] || die "local checkout still has tags";
+    log "Local checkout reset to the fresh initial commit."
+}
+
 prepare_initial_commit () 
 { 
     local dir="$1" tree commit login name email;
