@@ -89,6 +89,35 @@ record_restore_failure ()
     fi
 }
 
+append_restore_error ()
+{
+    local label="$1" errfile="$2";
+    [[ -n "${BACKUP_DIR:-}" && -s "$errfile" ]] || return 0;
+    {
+        printf '[%s]\n' "$label";
+        cat "$errfile";
+        printf '\n';
+    } >> "$BACKUP_DIR/restore-errors.log" \
+      || die "could not write restore error log"
+}
+
+capture_restore_state ()
+{
+    local label="$1" outfile="$2" err;
+    shift 2;
+    err="$(mktemp)";
+    if "$@" > "$outfile" 2> "$err"; then
+        rm -f "$err";
+        return 0;
+    fi;
+    rm -f "$outfile";
+    record_restore_failure "$label";
+    append_restore_error "$label" "$err";
+    warn "$label failed; skipping dependent reconciliation.";
+    rm -f "$err";
+    return 1
+}
+
 snapshot_manifest_file ()
 {
     local name="$1";
@@ -305,13 +334,7 @@ best_effort ()
     fi;
 
     record_restore_failure "$label";
-    if [[ -n "${BACKUP_DIR:-}" ]]; then
-        {
-            printf '[%s]\n' "$label";
-            cat "$err";
-            printf '\n';
-        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
-    fi;
+    append_restore_error "$label" "$err";
     warn "$label failed; continuing.";
     rm -f "$err";
     return 0
@@ -582,13 +605,7 @@ restore_once ()
 
     clear_restore_step_pending "$key";
     record_restore_failure "$label";
-    if [[ -n "${BACKUP_DIR:-}" ]]; then
-        {
-            printf '[%s]\n' "$label";
-            cat "$err";
-            printf '\n';
-        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
-    fi;
+    append_restore_error "$label" "$err";
     warn "$label failed; continuing.";
     rm -f "$err";
     return 0
