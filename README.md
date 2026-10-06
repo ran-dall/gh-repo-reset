@@ -2,7 +2,7 @@
 
 `gh-repo-reset` is a Bash wrapper around GitHub CLI (`gh`) that **recreates a GitHub repository from scratch** while keeping the exact contents of its current default branch.
 
-The new repository gets **one brand-new root commit named `Initial commit`**. When the command is run from a matching local worktree, the whole local repository is reset too: every clean linked worktree lands on that root commit, while only the current worktree keeps the `main` branch. The shared local ref namespace is scrubbed to only `refs/heads/main` and `refs/remotes/origin/main`; stale worktree registrations, tags, stash/notes/custom refs, extra remote-tracking refs, reflogs, unreachable objects, and orphaned `branch.<name>.*` config are removed. Old Git history and refs stay only in the timestamped safety backup.
+The new repository gets **one brand-new root commit named `Initial commit`**. When the command is run from a matching local worktree, the whole local repository is reset too: every clean linked worktree lands on that root commit, while only the current worktree keeps the repository's default branch. The shared local ref namespace is scrubbed to only that local default branch and its `origin/<default-branch>` tracking ref; stale worktree registrations, tags, stash/notes/custom refs, extra remote-tracking refs, reflogs, unreachable objects, and orphaned `branch.<name>.*` config are removed. Old Git history and refs stay only in the timestamped safety backup.
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
@@ -120,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/ran-dall/gh-repo-reset/main/gh-repo
   | bash -s -- OWNER/REPO --dry-run
 ```
 
-For a pinned release/tagged run, replace `main` with `v0.0.0-1`. The streamed launcher then fetches its modules from the same pinned version by default. Set `GH_REPO_RESET_SOURCE_REF=main` only when intentionally testing unreleased code.
+For a pinned release/tagged run, replace `main` with `v0.0.0-1`. The streamed launcher then fetches its modules from the same pinned version by default. Set `GH_REPO_RESET_SOURCE_REF=main` only when intentionally testing unreleased code. Forks can set `GH_REPO_RESET_SOURCE_REPO=OWNER/REPO` so streamed module/spec fetches come from the fork instead of the canonical upstream.
 
 Streamed bootstrap fetches the complete `lib/` module tree in one GraphQL request when GitHub exposes every blob intact, with bounded parallel REST as a compatibility fallback. The full Git mirror runs independently while GitHub API snapshots use one rolling bounded concurrency budget. Completed API jobs immediately free a slot instead of waiting for an entire batch. N+1-style membership/detail probes never nest another API pool: unavoidable GHCR package and organization secret/variable probes run as dedicated bounded stages, write isolated worker results, and merge serially. The default concurrency is 4; set `GH_REPO_RESET_JOBS=N` to tune it for a high-latency connection, but higher values can increase GitHub secondary-rate-limit pressure.
 
@@ -199,7 +199,7 @@ A real destructive run uses persistent state storage:
 ${XDG_STATE_HOME:-$HOME/.local/state}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
 ```
 
-Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old remote Git mirror. If the command is run inside a matching target worktree, `local.git/` also backs up the local repository refs and every worktree HEAD before they are rewritten. Every linked worktree must be clean. Stale worktree registrations are pruned before and after the rewrite. Secondary worktree directories are preserved and detached onto the fresh root commit; the worktree you ran from becomes the sole local `main` branch tracking `origin/main`. Ignored files are left alone. Keep the safety backup until the recreated repository, local worktrees, integrations, packages, workflows, and deployments have all been verified.
+Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old remote Git mirror. If the command is run inside a matching target worktree, `local.git/` also backs up the local repository refs and every worktree HEAD before they are rewritten. Every linked worktree must be clean. Stale worktree registrations are pruned before and after the rewrite. Secondary worktree directories are preserved and detached onto the fresh root commit; the worktree you ran from becomes the sole local default branch tracking the corresponding `origin/<default-branch>` ref. Ignored files are left alone. Keep the safety backup until the recreated repository, local worktrees, integrations, packages, workflows, and deployments have all been verified.
 
 If a destructive run is interrupted after the repository has been recreated, resume from that same backup instead of starting another reset:
 
