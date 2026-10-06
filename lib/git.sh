@@ -44,6 +44,7 @@ snapshot_git_and_metadata ()
         snapshot_api "$dir/discussions.json" "repos/$REPO/discussions?per_page=100";
     fi;
     snapshot_package_actions_access_hints "$dir"
+    snapshot_package_reset_targets "$dir"
 }
 
 snapshot_package_actions_access_hints ()
@@ -117,6 +118,79 @@ record_package_actions_access_followup ()
     done < "$dir/package-actions-access.tsv";
 
     record_manual_item package_actions_access "review GitHub Packages Manage Actions access for: $(join_comma "${labels[@]}"); GitHub does not expose prior repository grants through a supported API"
+}
+
+snapshot_package_reset_targets ()
+{
+    local dir="$1" type name url repo_name repo_key out;
+    source "$dir/repo-state.sh";
+    repo_name="${REPO#*/}";
+    repo_key="${repo_name,,}";
+    out="$dir/package-reset-targets.tsv";
+    : > "$out";
+
+    if [[ -s "$dir/package-actions-access.tsv" ]]; then
+        while IFS=$'\t' read -r type name url; do
+            [[ -n "$type" && -n "$name" ]] || continue;
+            [[ "$name" != "<registry-used>" && "$name" != "<workflow-uses-packages>" ]] || continue;
+            case "$type" in
+                container|npm|nuget|rubygems|docker) ;;
+                *) continue ;;
+            esac;
+            [[ "${name,,}" == "$repo_key" ]] || continue;
+            printf '%s\t%s\n' "$type" "$name" >> "$out";
+        done < "$dir/package-actions-access.tsv";
+    fi;
+
+    sort -u "$out" -o "$out";
+    if [[ -s "$out" ]]; then
+        record_snapshot_status "GitHub package reset targets" captured;
+    else
+        record_snapshot_status "GitHub package reset targets" absent;
+    fi
+}
+
+delete_reset_packages ()
+{
+    local dir="$1" base type name encoded err failed=0;
+    source "$dir/repo-state.sh";
+    : > "$dir/package-delete-failures.tsv";
+    : > "$dir/package-delete-errors.log";
+    [[ -s "$dir/package-reset-targets.tsv" ]] || return 0;
+
+    if [[ "${OWNER_TYPE:-User}" == Organization ]]; then
+        base="orgs/$OWNER/packages";
+    else
+        base="users/$OWNER/packages";
+    fi;
+
+    while IFS=$'\t' read -r type name; do
+        [[ -n "$type" && -n "$name" ]] || continue;
+        encoded="$(urlencode "$name")";
+        err="$(mktemp)";
+        log "Deleting GitHub package $type/$name...";
+        if api --method DELETE "$base/$type/$encoded" > /dev/null 2> "$err"; then
+            rm -f "$err";
+            continue;
+        fi;
+        if snapshot_error_is_404 "$err"; then
+            vlog "GitHub package $type/$name is already absent.";
+            rm -f "$err";
+            continue;
+        fi;
+
+        failed=1;
+        printf '%s\t%s\n' "$type" "$name" >> "$dir/package-delete-failures.tsv";
+        {
+            printf '[%s/%s]\n' "$type" "$name";
+            cat "$err";
+            printf '\n';
+        } >> "$dir/package-delete-errors.log";
+        warn "Could not delete GitHub package $type/$name.";
+        rm -f "$err";
+    done < "$dir/package-reset-targets.tsv";
+
+    (( failed == 0 ))
 }
 
 prepare_initial_commit () 
