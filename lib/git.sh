@@ -359,8 +359,12 @@ reset_local_checkout ()
     # Remove registrations Git considers stale after the rewrite too, then
     # expire reflogs and prune unreachable history.
     git -C "$root" worktree prune --expire=now >/dev/null 2>&1 || die "could not prune stale worktree registrations after reset";
-    git -C "$root" reflog expire --expire=now --all >/dev/null 2>&1 || true;
-    git -C "$root" gc --prune=now >/dev/null 2>&1 || true;
+    if ! git -C "$root" reflog expire --expire=now --expire-unreachable=now --all >/dev/null 2>&1; then
+        warn "Could not expire local reflogs; old commit objects may remain reachable locally.";
+    fi;
+    if ! git -C "$root" gc --prune=now >/dev/null 2>&1; then
+        warn "Could not prune unreachable local Git objects; refs are reset but old objects may remain on disk.";
+    fi;
 
     while IFS=$'\t' read -r wt old_head; do
         [[ "$(git -C "$wt" rev-parse HEAD)" == "$expected" ]] || die "linked worktree did not reset to the fresh initial commit: $wt";
