@@ -209,8 +209,9 @@ STATE_EOF
   grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
 
   snapshot_package_reset_targets "$tmp"
+  grep -Fxq $'container\ttailscale-bunny' "$tmp/package-reset-targets.tsv"
   grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  ! grep -Fq 'tailscale-bunny' "$tmp/package-reset-targets.tsv"
+  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 2 ]]
 
   DELETE_FAIL=0
   api() {
@@ -223,8 +224,8 @@ STATE_EOF
   }
 
   delete_reset_packages "$tmp"
+  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/tailscale-bunny' "$tmp/package-api.log"
   grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
-  ! grep -Fq 'tailscale-bunny' "$tmp/package-api.log"
   [[ ! -s "$tmp/package-delete-failures.tsv" ]]
 
   DELETE_FAIL=1
@@ -232,14 +233,13 @@ STATE_EOF
     printf 'package deletion should have failed\n' >&2
     return 1
   fi
+  grep -Fxq $'container\ttailscale-bunny' "$tmp/package-delete-failures.tsv"
   grep -Fxq $'container\ttwenty' "$tmp/package-delete-failures.tsv"
   grep -Fq 'HTTP 403' "$tmp/package-delete-errors.log"
 
+  : > "$tmp/manual-items.tsv"
   record_package_actions_access_followup "$tmp"
-  grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
-  grep -Fq 'container/tailscale-bunny' "$tmp/manual-items.tsv"
-  ! grep -Fq 'container/twenty' "$tmp/manual-items.tsv"
-  grep -Fq 'Manage Actions access' "$tmp/manual-items.tsv"
+  ! grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
   echo 'packages: ok'
 )
 
