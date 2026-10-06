@@ -1,4 +1,4 @@
-min_usage_version "6.12.0"
+min_usage_version "6.12.1"
 name "gh-repo-reset"
 bin "gh-repo-reset"
 version "v0.0.0-1"
