@@ -1,5 +1,12 @@
 # Restore access and identity-bound integrations where GitHub APIs allow it.
 
+ensure_current_repo_id ()
+{
+    [[ -n "${CURRENT_REPO_ID:-}" ]] && return 0;
+    CURRENT_REPO_ID="$(repo_field '.id' 2> /dev/null || true)";
+    [[ "$CURRENT_REPO_ID" =~ ^[0-9]+$ ]]
+}
+
 normalize_permission () 
 { 
     case "$1" in 
@@ -42,7 +49,12 @@ restore_app_installations ()
 { 
     local dir="$1" installation_id slug new_repo_id;
     [[ -f "$dir/app-installations/selected.tsv" ]] || return 0;
-    new_repo_id="$(repo_field '.id')";
+    if ! ensure_current_repo_id; then
+        record_restore_failure "GitHub App repository access";
+        warn "could not read the recreated repository ID; skipping GitHub App access restore";
+        return 0;
+    fi;
+    new_repo_id="$CURRENT_REPO_ID";
     while IFS='	' read -r installation_id slug; do
         [[ -n "$installation_id" ]] || continue;
         best_effort "restoring GitHub App repository access${slug:+ ($slug)}" api --method PUT "user/installations/$installation_id/repositories/$new_repo_id" > /dev/null;
@@ -54,7 +66,12 @@ restore_org_bindings ()
     local dir="$1" name group_id config_id new_repo_id payload;
     source "$dir/repo-state.sh";
     [[ "${OWNER_TYPE:-User}" == Organization && -d "$dir/org-bindings" ]] || return 0;
-    new_repo_id="$(repo_field '.id')";
+    if ! ensure_current_repo_id; then
+        record_restore_failure "organization repository bindings";
+        warn "could not read the recreated repository ID; skipping organization binding restore";
+        return 0;
+    fi;
+    new_repo_id="$CURRENT_REPO_ID";
     while IFS= read -r name; do
         [[ -n "$name" ]] && best_effort "restoring org Actions secret access: $name" api --method PUT "orgs/$OWNER/actions/secrets/$(urlencode "$name")/repositories/$new_repo_id" > /dev/null;
     done < "$dir/org-bindings/actions-secrets.txt";
