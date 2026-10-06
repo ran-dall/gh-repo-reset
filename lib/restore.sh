@@ -297,7 +297,16 @@ restore_environment_policy ()
 
     fallback_err="$envdir/environment-policy-fallback.err";
     if api --method PUT "$endpoint" --input "$fallback" > /dev/null 2> "$fallback_err"; then
-        if [[ -f "$envdir/environment.json" ]] && grep -Eq '"type"[[:space:]]*:[[:space:]]*"(wait_timer|required_reviewers)"' "$envdir/environment.json"; then
+        if [[ -f "$envdir/environment.json" ]]; then
+            # Legacy backups kept the raw environment response. Prefer it when
+            # present because old projected snapshots always included empty
+            # wait/reviewer fields.
+            if grep -Eq '"type"[[:space:]]*:[[:space:]]*"(wait_timer|required_reviewers)"' "$envdir/environment.json"; then
+                has_restricted_rules=1;
+            fi;
+        elif grep -Eq '"wait_timer"[[:space:]]*:|"reviewers"[[:space:]]*:' "$file"; then
+            # Current snapshots omit these keys unless the corresponding
+            # protection rule actually existed.
             has_restricted_rules=1;
         fi;
 
