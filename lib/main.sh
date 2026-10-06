@@ -160,23 +160,26 @@ gh_repo_reset_main() {
 
   # Independent API reads are intentionally bounded: enough concurrency to hide
   # network latency without creating an aggressive burst against GitHub APIs.
+  # The worker helper runs fixed-size waves. Put the multi-request snapshots
+  # together so their network latency overlaps instead of making later waves
+  # wait behind one heavy job paired with three fast ones.
   run_snapshot_jobs "$BACKUP_DIR" \
+    snapshot_org_bindings \
     snapshot_environments \
+    snapshot_app_installations \
+    snapshot_webhooks \
+    snapshot_access \
+    snapshot_branch_protection \
+    snapshot_secrets \
+    snapshot_actions_policies \
     snapshot_labels \
     snapshot_actions_settings \
     snapshot_deploy_keys \
     snapshot_variables \
-    snapshot_secrets \
-    snapshot_access \
     snapshot_rulesets \
-    snapshot_branch_protection \
-    snapshot_actions_policies \
     snapshot_autolinks \
-    snapshot_app_installations \
-    snapshot_org_bindings \
     snapshot_custom_properties \
-    snapshot_pages \
-    snapshot_webhooks
+    snapshot_pages
 
   if wait "$git_snapshot_pid"; then
     record_snapshot_status "Git and metadata mirror" captured
