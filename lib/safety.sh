@@ -107,8 +107,12 @@ has_irreplaceable_metadata ()
 confirm_reset () 
 { 
     (( YES )) && return 0;
-    local typed;
+    local typed package_count=0;
+    package_count="$(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv")";
     printf '\nThis will DELETE and RECREATE %s with ONE fresh initial commit.\n' "$REPO" 1>&2;
+    if (( package_count )); then
+        printf 'It will also DELETE %s repository-owned GitHub package(s) detected for this reset.\n' "$package_count" 1>&2;
+    fi;
     printf 'Type the full repository name (%s) to continue: ' "$REPO" 1>&2;
     if [[ -r /dev/tty ]]; then
         IFS= read -r typed < /dev/tty;
