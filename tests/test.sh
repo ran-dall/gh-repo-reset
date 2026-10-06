@@ -178,6 +178,7 @@ test_packages() (
   mkdir -p "$source/.github/workflows"
   cat > "$source/image.ts" <<'SRC_EOF'
 const imageRepository = "ghcr.io/kaiju-ind/twenty";
+const dependency = "ghcr.io/kaiju-ind/shared-base:latest";
 SRC_EOF
   cat > "$source/.github/workflows/release.yml" <<'YAML_EOF'
 permissions:
@@ -196,6 +197,7 @@ YAML_EOF
 REPO=Kaiju-Ind/twenty
 OWNER=Kaiju-Ind
 OWNER_TYPE=Organization
+REPO_ID=123
 DEFAULT_BRANCH=main
 STATE_EOF
 
@@ -205,28 +207,48 @@ STATE_EOF
 
   snapshot_package_actions_access_hints "$tmp"
   grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
-
-  snapshot_package_reset_targets "$tmp"
-  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 1 ]]
-
-  : > "$tmp/package-actions-access.tsv"
-  snapshot_package_reset_targets "$tmp"
-  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 1 ]]
+  grep -Fq $'container\tshared-base\t' "$tmp/package-actions-access.tsv"
 
   DELETE_FAIL=0
   api() {
+    local args=" $* "
     printf '%s\n' "$*" >> "$tmp/package-api.log"
-    if (( DELETE_FAIL )); then
-      printf 'HTTP 403: package admin permission required\n' >&2
-      return 1
+    if [[ "$args" == *" --paginate orgs/Kaiju-Ind/packages?package_type=container&per_page=100 --jq .[].name "* ]]; then
+      printf 'twenty\ntwenty-worker\nshared-base\n'
+      return 0
     fi
-    return 0
+    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/twenty --jq .repository.id // empty "* ]]; then
+      return 0
+    fi
+    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/twenty-worker --jq .repository.id // empty "* ]]; then
+      printf '123\n'
+      return 0
+    fi
+    if [[ "$args" == *" orgs/Kaiju-Ind/packages/container/shared-base --jq .repository.id // empty "* ]]; then
+      printf '999\n'
+      return 0
+    fi
+    if [[ "$args" == *" --method DELETE "* ]]; then
+      if (( DELETE_FAIL )); then
+        printf 'HTTP 403: package admin permission required\n' >&2
+        return 1
+      fi
+      return 0
+    fi
+    printf 'unexpected package api invocation: %s\n' "$*" >&2
+    return 99
   }
+
+  snapshot_package_reset_targets "$tmp"
+  grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
+  grep -Fxq $'container\ttwenty-worker' "$tmp/package-reset-targets.tsv"
+  ! grep -Fq 'shared-base' "$tmp/package-reset-targets.tsv"
+  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 2 ]]
 
   delete_reset_packages "$tmp"
   grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
+  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty-worker' "$tmp/package-api.log"
+  ! grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/shared-base' "$tmp/package-api.log"
   [[ ! -s "$tmp/package-delete-failures.tsv" ]]
 
   DELETE_FAIL=1
@@ -235,11 +257,14 @@ STATE_EOF
     return 1
   fi
   grep -Fxq $'container\ttwenty' "$tmp/package-delete-failures.tsv"
+  grep -Fxq $'container\ttwenty-worker' "$tmp/package-delete-failures.tsv"
   grep -Fq 'HTTP 403' "$tmp/package-delete-errors.log"
 
   : > "$tmp/manual-items.tsv"
   record_package_actions_access_followup "$tmp"
-  ! grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
+  grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
+  grep -Fq 'container/shared-base' "$tmp/manual-items.tsv"
+  ! grep -Fq 'container/twenty' "$tmp/manual-items.tsv"
   echo 'packages: ok'
 )
 
