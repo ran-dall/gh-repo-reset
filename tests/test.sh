@@ -238,6 +238,7 @@ STATE_EOF
   record_package_actions_access_followup "$tmp"
   grep -q '^package_actions_access[[:space:]]' "$tmp/manual-items.tsv"
   grep -Fq 'container/tailscale-bunny' "$tmp/manual-items.tsv"
+  ! grep -Fq 'container/twenty' "$tmp/manual-items.tsv"
   grep -Fq 'Manage Actions access' "$tmp/manual-items.tsv"
   echo 'packages: ok'
 )
