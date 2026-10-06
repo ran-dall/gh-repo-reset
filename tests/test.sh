@@ -33,10 +33,13 @@ test_syntax() {
   [[ -f mise.toml ]]
   [[ -f gh-repo-reset.usage.kdl ]]
   [[ -x mise-tasks/test ]]
-  grep -Fxq 'gh = "2.101.0"' mise.toml
-  grep -Fxq 'usage = "6.12.0"' mise.toml
-  grep -Fq 'uses: jdx/mise-action@v2' .github/workflows/check.yml
+  grep -Fxq 'gh = "2.102.0"' mise.toml
+  grep -Fxq 'usage = "6.12.1"' mise.toml
+  grep -Fxq 'min_usage_version "6.12.1"' gh-repo-reset.usage.kdl
+  grep -Fq 'uses: actions/checkout@v7' .github/workflows/check.yml
+  grep -Fq 'uses: jdx/mise-action@v5' .github/workflows/check.yml
   grep -Fq 'run: mise run check' .github/workflows/check.yml
+  grep -Fq '"org-bindings"' mise-tasks/test
   ! grep -q '// true' lib/snapshot.sh
   ! grep -q 'gh variable get' lib/snapshot.sh
   ! grep -q 'repos/\$REPO/labels/\$(urlencode' lib/snapshot.sh
@@ -50,6 +53,13 @@ test_syntax() {
   ! grep -q 'runner-groups/\$group_id/repositories' lib/snapshot.sh
   ! grep -q 'snapshot_capture "\$envdir/environment.json"' lib/snapshot.sh
   grep -q 'GH_REPO_RESET_JOBS' gh-repo-reset
+  grep -q 'GH_REPO_RESET_SOURCE_REPO' gh-repo-reset
+  grep -q 'GH_REPO_RESET_SNAPSHOT_WORKER_DIR' lib/core.sh
+  grep -q 'git_state="\$dir/git-state.sh"' lib/git.sh
+  grep -q 'cat "\$BACKUP_DIR/git-state.sh" >> "\$BACKUP_DIR/repo-state.sh"' lib/main.sh
+  ! grep -Fq 'issues?state=all&per_page=1' lib/safety.sh
+  ! grep -Fq 'releases?per_page=1' lib/safety.sh
+  ! grep -Fq 'repo_field' lib/safety.sh
   echo 'syntax: ok'
 }
 
@@ -580,6 +590,7 @@ test_snapshot_guard() (
 
   pool_slow() {
     local dir="$1" i
+    record_snapshot_status "pool slow" captured
     : > "$dir/pool-slow.started"
     for ((i=0; i<200; i++)); do
       [[ -e "$dir/pool.release" ]] && return 0
@@ -588,14 +599,470 @@ test_snapshot_guard() (
     return 1
   }
   pool_fast() {
+    record_snapshot_status "pool fast" captured
     : > "$1/pool-fast.started"
   }
   pool_release() {
+    record_snapshot_status "pool release" captured
     : > "$1/pool-third.started"
     : > "$1/pool.release"
   }
   GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp" pool_slow pool_fast pool_release
   [[ -e "$tmp/pool-slow.started" && -e "$tmp/pool-fast.started" && -e "$tmp/pool-third.started" && -e "$tmp/pool.release" ]]
+  grep -Fqx 
+
+  snapshot_stream "labels" fail_500 >/dev/null
+  grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
+  grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
+  grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
+
+  snapshot_capture_optional_404 "$tmp/pages.json" "Pages configuration" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'Pages configuration\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/pages.json" ]]
+
+  rc=0
+  snapshot_capture_optional_404 "$tmp/deployment-branch-policies.tsv" "environment Preview deployment branch policies" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'environment Preview deployment branch policies\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'environment Preview deployment branch policies' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/deployment-branch-policies.tsv" ]]
+
+  snapshot_capture_optional_pattern "$tmp/selected-actions.json" "selected Actions" 'Conflict' fail_conflict
+  grep -Fqx $'selected Actions\tabsent' "$tmp/snapshot-status.tsv"
+  [[ ! -e "$tmp/selected-actions.json" ]]
+
+  grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
+  grep -q 'snapshot-status.tsv' ./lib/main.sh
+  grep -Fq "[[:space:]]failed$" ./lib/main.sh
+  echo 'snapshot-guard: ok'
+)
+
+test_resume_journal() (
+  set -Eeuo pipefail
+  local tmp calls
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  SECRETS_DIR=""
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  source ./lib/core.sh
+  source ./lib/integrations.sh
+
+  create_once() { printf 'create\n' >> "$tmp/create.log"; }
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
+  [[ ! -f "$tmp/restore-pending.txt" || ! -s "$tmp/restore-pending.txt" ]]
+
+  printf 'ruleset:99\n' > "$tmp/restore-pending.txt"
+  restore_once "ruleset:99" "restoring interrupted test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  grep -Fq 'restoring interrupted test ruleset (unfinished prior attempt)' "$tmp/restore-failures.txt"
+
+  mkdir -p "$tmp/webhooks/1"
+  cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=1234
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  printf '{"name":"web","active":true,"events":["push"],"config":{"url":"https://example.test/hook","content_type":"json","insecure_ssl":"0"}}\n' > "$tmp/webhooks/1/create.json"
+
+  api() {
+    local args=" $* "
+    if [[ "$args" == *" --method POST repos/owner/repo/hooks "* ]]; then
+      printf 'post\n' >> "$tmp/webhook-posts.log"
+      printf '9001\n'
+      return 0
+    fi
+    return 0
+  }
+
+  restore_webhooks "$tmp"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
+
+  mkdir -p "$tmp/webhooks/2"
+  cat > "$tmp/webhooks/2/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=5678
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  cp "$tmp/webhooks/1/create.json" "$tmp/webhooks/2/create.json"
+  printf 'webhook:5678\n' >> "$tmp/restore-pending.txt"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  grep -Fq 'webhook 5678 (unfinished prior attempt)' "$tmp/restore-failures.txt"
+  echo 'resume-journal: ok'
+)
+
+test_dry_run() {
+  ./tests/mock-dry-run.sh
+  ./tests/mock-dry-run.sh --verbose
+}
+
+test_org() {
+  MOCK_OWNER_TYPE=Organization MOCK_NO_CODE_SECURITY=1 ./tests/mock-dry-run.sh
+  echo 'org: ok'
+}
+
+test_reset() {
+  ./tests/mock-reset.sh
+}
+
+test_pipe() {
+  ./tests/mock-pipe.sh
+}
+
+run_suite() {
+  case "$1" in
+    syntax) test_syntax ;;
+    self) test_self ;;
+    legacy) test_legacy ;;
+    git) test_git ;;
+    labels) test_labels ;;
+    packages) test_packages ;;
+    org-bindings) test_org_bindings ;;
+    environment) test_environment ;;
+    deploy-key) test_deploy_key ;;
+    snapshot-guard) test_snapshot_guard ;;
+    resume-journal) test_resume_journal ;;
+    dry-run) test_dry_run ;;
+    org) test_org ;;
+    reset) test_reset ;;
+    pipe) test_pipe ;;
+    *)
+      printf 'unknown test suite: %s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+case "$suite" in
+  all)
+    for name in syntax self legacy git labels packages org-bindings environment deploy-key snapshot-guard resume-journal dry-run org reset pipe; do
+      run_suite "$name"
+    done
+    echo 'tests: ok'
+    ;;
+  syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe)
+    run_suite "$suite"
+    ;;
+  *)
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+pool slow\tcaptured' "$tmp/snapshot-status.tsv"
+  grep -Fqx 
+
+  snapshot_stream "labels" fail_500 >/dev/null
+  grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
+  grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
+  grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
+
+  snapshot_capture_optional_404 "$tmp/pages.json" "Pages configuration" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'Pages configuration\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/pages.json" ]]
+
+  rc=0
+  snapshot_capture_optional_404 "$tmp/deployment-branch-policies.tsv" "environment Preview deployment branch policies" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'environment Preview deployment branch policies\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'environment Preview deployment branch policies' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/deployment-branch-policies.tsv" ]]
+
+  snapshot_capture_optional_pattern "$tmp/selected-actions.json" "selected Actions" 'Conflict' fail_conflict
+  grep -Fqx $'selected Actions\tabsent' "$tmp/snapshot-status.tsv"
+  [[ ! -e "$tmp/selected-actions.json" ]]
+
+  grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
+  grep -q 'snapshot-status.tsv' ./lib/main.sh
+  grep -Fq "[[:space:]]failed$" ./lib/main.sh
+  echo 'snapshot-guard: ok'
+)
+
+test_resume_journal() (
+  set -Eeuo pipefail
+  local tmp calls
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  SECRETS_DIR=""
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  source ./lib/core.sh
+  source ./lib/integrations.sh
+
+  create_once() { printf 'create\n' >> "$tmp/create.log"; }
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
+  [[ ! -f "$tmp/restore-pending.txt" || ! -s "$tmp/restore-pending.txt" ]]
+
+  printf 'ruleset:99\n' > "$tmp/restore-pending.txt"
+  restore_once "ruleset:99" "restoring interrupted test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  grep -Fq 'restoring interrupted test ruleset (unfinished prior attempt)' "$tmp/restore-failures.txt"
+
+  mkdir -p "$tmp/webhooks/1"
+  cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=1234
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  printf '{"name":"web","active":true,"events":["push"],"config":{"url":"https://example.test/hook","content_type":"json","insecure_ssl":"0"}}\n' > "$tmp/webhooks/1/create.json"
+
+  api() {
+    local args=" $* "
+    if [[ "$args" == *" --method POST repos/owner/repo/hooks "* ]]; then
+      printf 'post\n' >> "$tmp/webhook-posts.log"
+      printf '9001\n'
+      return 0
+    fi
+    return 0
+  }
+
+  restore_webhooks "$tmp"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
+
+  mkdir -p "$tmp/webhooks/2"
+  cat > "$tmp/webhooks/2/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=5678
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  cp "$tmp/webhooks/1/create.json" "$tmp/webhooks/2/create.json"
+  printf 'webhook:5678\n' >> "$tmp/restore-pending.txt"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  grep -Fq 'webhook 5678 (unfinished prior attempt)' "$tmp/restore-failures.txt"
+  echo 'resume-journal: ok'
+)
+
+test_dry_run() {
+  ./tests/mock-dry-run.sh
+  ./tests/mock-dry-run.sh --verbose
+}
+
+test_org() {
+  MOCK_OWNER_TYPE=Organization MOCK_NO_CODE_SECURITY=1 ./tests/mock-dry-run.sh
+  echo 'org: ok'
+}
+
+test_reset() {
+  ./tests/mock-reset.sh
+}
+
+test_pipe() {
+  ./tests/mock-pipe.sh
+}
+
+run_suite() {
+  case "$1" in
+    syntax) test_syntax ;;
+    self) test_self ;;
+    legacy) test_legacy ;;
+    git) test_git ;;
+    labels) test_labels ;;
+    packages) test_packages ;;
+    org-bindings) test_org_bindings ;;
+    environment) test_environment ;;
+    deploy-key) test_deploy_key ;;
+    snapshot-guard) test_snapshot_guard ;;
+    resume-journal) test_resume_journal ;;
+    dry-run) test_dry_run ;;
+    org) test_org ;;
+    reset) test_reset ;;
+    pipe) test_pipe ;;
+    *)
+      printf 'unknown test suite: %s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+case "$suite" in
+  all)
+    for name in syntax self legacy git labels packages org-bindings environment deploy-key snapshot-guard resume-journal dry-run org reset pipe; do
+      run_suite "$name"
+    done
+    echo 'tests: ok'
+    ;;
+  syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe)
+    run_suite "$suite"
+    ;;
+  *)
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+pool fast\tcaptured' "$tmp/snapshot-status.tsv"
+  grep -Fqx 
+
+  snapshot_stream "labels" fail_500 >/dev/null
+  grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
+  grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
+  grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
+
+  snapshot_capture_optional_404 "$tmp/pages.json" "Pages configuration" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'Pages configuration\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/pages.json" ]]
+
+  rc=0
+  snapshot_capture_optional_404 "$tmp/deployment-branch-policies.tsv" "environment Preview deployment branch policies" fail_404 || rc=$?
+  [[ "$rc" -eq 2 ]]
+  grep -Fqx $'environment Preview deployment branch policies\tabsent' "$tmp/snapshot-status.tsv"
+  ! grep -Fq 'environment Preview deployment branch policies' "$tmp/snapshot-failures.txt"
+  [[ ! -e "$tmp/deployment-branch-policies.tsv" ]]
+
+  snapshot_capture_optional_pattern "$tmp/selected-actions.json" "selected Actions" 'Conflict' fail_conflict
+  grep -Fqx $'selected Actions\tabsent' "$tmp/snapshot-status.tsv"
+  [[ ! -e "$tmp/selected-actions.json" ]]
+
+  grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
+  grep -q 'snapshot-status.tsv' ./lib/main.sh
+  grep -Fq "[[:space:]]failed$" ./lib/main.sh
+  echo 'snapshot-guard: ok'
+)
+
+test_resume_journal() (
+  set -Eeuo pipefail
+  local tmp calls
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  PROGRAM=gh-repo-reset-test
+  VERBOSE=0
+  REPO=owner/repo
+  BACKUP_DIR="$tmp"
+  SECRETS_DIR=""
+  : > "$tmp/restore-failures.txt"
+  : > "$tmp/restore-errors.log"
+  source ./lib/core.sh
+  source ./lib/integrations.sh
+
+  create_once() { printf 'create\n' >> "$tmp/create.log"; }
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  restore_once "ruleset:42" "restoring test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
+  [[ ! -f "$tmp/restore-pending.txt" || ! -s "$tmp/restore-pending.txt" ]]
+
+  printf 'ruleset:99\n' > "$tmp/restore-pending.txt"
+  restore_once "ruleset:99" "restoring interrupted test ruleset" create_once
+  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
+  grep -Fq 'restoring interrupted test ruleset (unfinished prior attempt)' "$tmp/restore-failures.txt"
+
+  mkdir -p "$tmp/webhooks/1"
+  cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=1234
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  printf '{"name":"web","active":true,"events":["push"],"config":{"url":"https://example.test/hook","content_type":"json","insecure_ssl":"0"}}\n' > "$tmp/webhooks/1/create.json"
+
+  api() {
+    local args=" $* "
+    if [[ "$args" == *" --method POST repos/owner/repo/hooks "* ]]; then
+      printf 'post\n' >> "$tmp/webhook-posts.log"
+      printf '9001\n'
+      return 0
+    fi
+    return 0
+  }
+
+  restore_webhooks "$tmp"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
+
+  mkdir -p "$tmp/webhooks/2"
+  cat > "$tmp/webhooks/2/state.sh" <<'STATE_EOF'
+OLD_HOOK_ID=5678
+HOOK_SECRET_STATUS=unsigned
+STATE_EOF
+  cp "$tmp/webhooks/1/create.json" "$tmp/webhooks/2/create.json"
+  printf 'webhook:5678\n' >> "$tmp/restore-pending.txt"
+  restore_webhooks "$tmp"
+  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
+  grep -Fq 'webhook 5678 (unfinished prior attempt)' "$tmp/restore-failures.txt"
+  echo 'resume-journal: ok'
+)
+
+test_dry_run() {
+  ./tests/mock-dry-run.sh
+  ./tests/mock-dry-run.sh --verbose
+}
+
+test_org() {
+  MOCK_OWNER_TYPE=Organization MOCK_NO_CODE_SECURITY=1 ./tests/mock-dry-run.sh
+  echo 'org: ok'
+}
+
+test_reset() {
+  ./tests/mock-reset.sh
+}
+
+test_pipe() {
+  ./tests/mock-pipe.sh
+}
+
+run_suite() {
+  case "$1" in
+    syntax) test_syntax ;;
+    self) test_self ;;
+    legacy) test_legacy ;;
+    git) test_git ;;
+    labels) test_labels ;;
+    packages) test_packages ;;
+    org-bindings) test_org_bindings ;;
+    environment) test_environment ;;
+    deploy-key) test_deploy_key ;;
+    snapshot-guard) test_snapshot_guard ;;
+    resume-journal) test_resume_journal ;;
+    dry-run) test_dry_run ;;
+    org) test_org ;;
+    reset) test_reset ;;
+    pipe) test_pipe ;;
+    *)
+      printf 'unknown test suite: %s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+case "$suite" in
+  all)
+    for name in syntax self legacy git labels packages org-bindings environment deploy-key snapshot-guard resume-journal dry-run org reset pipe; do
+      run_suite "$name"
+    done
+    echo 'tests: ok'
+    ;;
+  syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe)
+    run_suite "$suite"
+    ;;
+  *)
+    printf 'usage: %s [all|syntax|self|legacy|git|labels|packages|org-bindings|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+pool release\tcaptured' "$tmp/snapshot-status.tsv"
+  [[ ! -e "$tmp/.snapshot-workers" ]]
 
   snapshot_stream "labels" fail_500 >/dev/null
   grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
