@@ -150,16 +150,15 @@ snapshot_package_reset_targets ()
     # each package detail, and keep only packages linked to this repository ID.
     snapshot_capture "$dir/container-package-names.txt" "owner container packages" \
       api --paginate "$list_endpoint" --jq '.[].name';
+    [[ -f "$dir/container-package-names.txt" ]] || return 0;
 
-    if [[ -f "$dir/container-package-names.txt" ]]; then
-        while IFS= read -r name; do
+    while IFS= read -r name; do
             [[ -n "$name" ]] || continue;
             linked_repo_id="$(snapshot_value "container package $name repository association" "" \
               api "$package_base/$(urlencode "$name")" --jq '.repository.id // empty')";
             [[ -n "$linked_repo_id" && "$linked_repo_id" == "$REPO_ID" ]] || continue;
             printf 'container\t%s\n' "$name" >> "$out";
-        done < "$dir/container-package-names.txt";
-    fi;
+    done < "$dir/container-package-names.txt";
 
     sort -u "$out" -o "$out";
     record_snapshot_status "GitHub package reset targets" captured
