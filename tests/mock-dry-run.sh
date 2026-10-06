@@ -195,6 +195,13 @@ else
 fi
 grep -q 'Dry run complete' "$TMP/err"
 grep -q 'Plan:' "$TMP/err"
+if [[ "${MOCK_CONFIG:-0}" == 1 ]]; then
+  if [[ " $* " == *" --allow-metadata-loss "* ]]; then
+    ! grep -q 'A real reset requires --allow-metadata-loss' "$TMP/err"
+  else
+    grep -q 'A real reset requires --allow-metadata-loss' "$TMP/err"
+  fi
+fi
 ! grep -q 'Automatically handled when GitHub exposes enough information' "$TMP/err"
 if [[ " $* " == *" --verbose "* ]]; then
   grep -q 'Detected:' "$TMP/err"
