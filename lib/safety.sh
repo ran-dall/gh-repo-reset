@@ -1,25 +1,27 @@
 # Destructive-operation guards and detection of non-round-trippable state.
 
-has_irreplaceable_metadata () 
-{ 
-    local found=0 first stars forks is_fork f secret_count webhook_count;
+has_irreplaceable_metadata ()
+{
+    local found=0 stars forks is_fork f secret_count webhook_count;
     : > "$BACKUP_DIR/manual-items.tsv";
+    source "$BACKUP_DIR/repo-state.sh";
 
-    first="$(api "repos/$REPO/issues?state=all&per_page=1" --jq '.[0].number // empty' 2> /dev/null || true)";
-    if [[ -n "$first" ]]; then
+    # Reuse the authoritative snapshot instead of making fresh pre-delete API
+    # reads. This avoids five redundant requests and guarantees this guard is
+    # evaluating the same state that was actually backed up.
+    if [[ -s "$BACKUP_DIR/issues.json" ]] && grep -Eq '"number"[[:space:]]*:' "$BACKUP_DIR/issues.json"; then
         record_manual_item history "issues and/or pull requests are not recreated";
         found=1;
     fi;
 
-    first="$(api "repos/$REPO/releases?per_page=1" --jq '.[0].id // empty' 2> /dev/null || true)";
-    if [[ -n "$first" ]]; then
+    if [[ -s "$BACKUP_DIR/releases.json" ]] && grep -Eq '"id"[[:space:]]*:' "$BACKUP_DIR/releases.json"; then
         record_manual_item history "releases/assets are not recreated";
         found=1;
     fi;
 
-    stars="$(repo_field '.stargazers_count // 0')";
-    forks="$(repo_field '.forks_count // 0')";
-    is_fork="$(repo_field '.fork // false')";
+    stars="${STARGAZERS:-0}";
+    forks="${FORKS:-0}";
+    is_fork="${IS_FORK:-false}";
 
     if (( stars > 0 )); then
         record_manual_item identity "$stars star(s) do not follow the new repository ID";
@@ -70,14 +72,12 @@ has_irreplaceable_metadata ()
     for f in "$BACKUP_DIR"/branch-protection/*/state.sh; do
         [[ -f "$f" ]] || continue;
         source "$f";
-        source "$BACKUP_DIR/repo-state.sh";
         if [[ "$BRANCH_NAME" != "$DEFAULT_BRANCH" ]]; then
             record_manual_item branches "protected branch '$BRANCH_NAME' will not be recreated";
             found=1;
         fi;
     done;
 
-    source "$BACKUP_DIR/repo-state.sh";
     if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" != complete ]]; then
         record_manual_item lfs "Git LFS objects were not safely backed up";
         found=1;
@@ -85,7 +85,6 @@ has_irreplaceable_metadata ()
 
     if [[ -f "$BACKUP_DIR/pages-state.sh" ]]; then
         source "$BACKUP_DIR/pages-state.sh";
-        source "$BACKUP_DIR/repo-state.sh";
         if [[ "${PAGES_BUILD_TYPE:-legacy}" != workflow && -n "${PAGES_SOURCE_BRANCH:-}" && "$PAGES_SOURCE_BRANCH" != "$DEFAULT_BRANCH" ]]; then
             record_manual_item pages "Pages source '$PAGES_SOURCE_BRANCH' will not be recreated";
             found=1;
