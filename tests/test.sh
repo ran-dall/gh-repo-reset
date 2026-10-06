@@ -483,177 +483,27 @@ test_snapshot_guard() (
   fail_conflict() { printf 'HTTP 409: Conflict\n' >&2; return 1; }
 
   snapshot_capture "$tmp/repository.json" "repository settings" succeed
-  grep -Fqx 
+  grep -Fqx $'repository settings\tcaptured' "$tmp/snapshot-status.tsv"
   [[ -s "$tmp/repository.json" ]]
 
-  snapshot_stream "labels" fail_500 >/dev/null
-  grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
-  grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
-  grep -q 'HTTP 500' "$tmp/snapshot-errors.log"
-
-  snapshot_capture_optional_404 "$tmp/pages.json" "Pages configuration" fail_404 || rc=$?
-  [[ "$rc" -eq 2 ]]
-  grep -Fqx $'Pages configuration\tabsent' "$tmp/snapshot-status.tsv"
-  ! grep -Fq 'Pages configuration' "$tmp/snapshot-failures.txt"
-  [[ ! -e "$tmp/pages.json" ]]
-
-  rc=0
-  snapshot_capture_optional_404 "$tmp/deployment-branch-policies.tsv" "environment Preview deployment branch policies" fail_404 || rc=$?
-  [[ "$rc" -eq 2 ]]
-  grep -Fqx $'environment Preview deployment branch policies\tabsent' "$tmp/snapshot-status.tsv"
-  ! grep -Fq 'environment Preview deployment branch policies' "$tmp/snapshot-failures.txt"
-  [[ ! -e "$tmp/deployment-branch-policies.tsv" ]]
-
-  snapshot_capture_optional_pattern "$tmp/selected-actions.json" "selected Actions" 'Conflict' fail_conflict
-  grep -Fqx $'selected Actions\tabsent' "$tmp/snapshot-status.tsv"
-  [[ ! -e "$tmp/selected-actions.json" ]]
-
-  grep -Fq 'snapshot_capture_optional_404 "$envdir/deployment-branch-policies.tsv"' ./lib/snapshot.sh
-  grep -q 'snapshot-status.tsv' ./lib/main.sh
-  grep -Fq "[[:space:]]failed$" ./lib/main.sh
-  echo 'snapshot-guard: ok'
-)
-
-test_resume_journal() (
-  set -Eeuo pipefail
-  local tmp calls
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
-
-  PROGRAM=gh-repo-reset-test
-  VERBOSE=0
-  REPO=owner/repo
-  BACKUP_DIR="$tmp"
-  SECRETS_DIR=""
-  : > "$tmp/restore-failures.txt"
-  : > "$tmp/restore-errors.log"
-  source ./lib/core.sh
-  source ./lib/integrations.sh
-
-  create_once() { printf 'create\n' >> "$tmp/create.log"; }
-  restore_once "ruleset:42" "restoring test ruleset" create_once
-  restore_once "ruleset:42" "restoring test ruleset" create_once
-  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
-  [[ "$(grep -Fxc 'ruleset:42' "$tmp/restore-completed.txt")" -eq 1 ]]
-  [[ ! -f "$tmp/restore-pending.txt" || ! -s "$tmp/restore-pending.txt" ]]
-
-  printf 'ruleset:99\n' > "$tmp/restore-pending.txt"
-  restore_once "ruleset:99" "restoring interrupted test ruleset" create_once
-  [[ "$(wc -l < "$tmp/create.log")" -eq 1 ]]
-  grep -Fq 'restoring interrupted test ruleset (unfinished prior attempt)' "$tmp/restore-failures.txt"
-
-  mkdir -p "$tmp/webhooks/1"
-  cat > "$tmp/webhooks/1/state.sh" <<'STATE_EOF'
-OLD_HOOK_ID=1234
-HOOK_SECRET_STATUS=unsigned
-STATE_EOF
-  printf '{"name":"web","active":true,"events":["push"],"config":{"url":"https://example.test/hook","content_type":"json","insecure_ssl":"0"}}\n' > "$tmp/webhooks/1/create.json"
-
-  api() {
-    local args=" $* "
-    if [[ "$args" == *" --method POST repos/owner/repo/hooks "* ]]; then
-      printf 'post\n' >> "$tmp/webhook-posts.log"
-      printf '9001\n'
-      return 0
-    fi
-    return 0
-  }
-
-  restore_webhooks "$tmp"
-  restore_webhooks "$tmp"
-  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
-  [[ "$(cat "$tmp/webhooks/1/restored-id")" == 9001 ]]
-
-  mkdir -p "$tmp/webhooks/2"
-  cat > "$tmp/webhooks/2/state.sh" <<'STATE_EOF'
-OLD_HOOK_ID=5678
-HOOK_SECRET_STATUS=unsigned
-STATE_EOF
-  cp "$tmp/webhooks/1/create.json" "$tmp/webhooks/2/create.json"
-  printf 'webhook:5678\n' >> "$tmp/restore-pending.txt"
-  restore_webhooks "$tmp"
-  [[ "$(wc -l < "$tmp/webhook-posts.log")" -eq 1 ]]
-  grep -Fq 'webhook 5678 (unfinished prior attempt)' "$tmp/restore-failures.txt"
-  echo 'resume-journal: ok'
-)
-
-test_dry_run() {
-  ./tests/mock-dry-run.sh
-  ./tests/mock-dry-run.sh --verbose
-}
-
-test_org() {
-  MOCK_OWNER_TYPE=Organization MOCK_NO_CODE_SECURITY=1 ./tests/mock-dry-run.sh
-  echo 'org: ok'
-}
-
-test_reset() {
-  ./tests/mock-reset.sh
-}
-
-test_pipe() {
-  ./tests/mock-pipe.sh
-}
-
-run_suite() {
-  case "$1" in
-    syntax) test_syntax ;;
-    self) test_self ;;
-    legacy) test_legacy ;;
-    git) test_git ;;
-    labels) test_labels ;;
-    packages) test_packages ;;
-    environment) test_environment ;;
-    deploy-key) test_deploy_key ;;
-    snapshot-guard) test_snapshot_guard ;;
-    resume-journal) test_resume_journal ;;
-    dry-run) test_dry_run ;;
-    org) test_org ;;
-    reset) test_reset ;;
-    pipe) test_pipe ;;
-    *)
-      printf 'unknown test suite: %s\n' "$1" >&2
-      return 2
-      ;;
-  esac
-}
-
-case "$suite" in
-  all)
-    for name in syntax self legacy git labels packages environment deploy-key snapshot-guard resume-journal dry-run org reset pipe; do
-      run_suite "$name"
-    done
-    echo 'tests: ok'
-    ;;
-  syntax|self|legacy|git|labels|packages|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe)
-    run_suite "$suite"
-    ;;
-  *)
-    printf 'usage: %s [all|syntax|self|legacy|git|labels|packages|environment|deploy-key|snapshot-guard|resume-journal|dry-run|org|reset|pipe]\n' "$0" >&2
-    exit 2
-    ;;
-esac
-repository settings\tcaptured' "$tmp/snapshot-status.tsv"
-
   pool_slow() {
-    local dir="$1" i;
-    : > "$dir/pool-slow.started";
+    local dir="$1" i
+    : > "$dir/pool-slow.started"
     for ((i=0; i<200; i++)); do
-      [[ -e "$dir/pool.release" ]] && return 0;
-      sleep 0.01;
-    done;
-    return 1;
+      [[ -e "$dir/pool.release" ]] && return 0
+      sleep 0.01
+    done
+    return 1
   }
   pool_fast() {
-    : > "$1/pool-fast.started";
+    : > "$1/pool-fast.started"
   }
   pool_release() {
-    : > "$1/pool-third.started";
-    : > "$1/pool.release";
+    : > "$1/pool-third.started"
+    : > "$1/pool.release"
   }
   GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp" pool_slow pool_fast pool_release
   [[ -e "$tmp/pool-slow.started" && -e "$tmp/pool-fast.started" && -e "$tmp/pool-third.started" && -e "$tmp/pool.release" ]]
-  [[ -s "$tmp/repository.json" ]]
 
   snapshot_stream "labels" fail_500 >/dev/null
   grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
