@@ -42,7 +42,7 @@ snapshot_git_backup ()
         else
             write_assignment "$git_state" WIKI_BACKUP failed;
             warn "Wiki Git history backup failed";
-            (( VERBOSE )) && sed 's/^/  /' "$wiki_err" >&2 || true;
+            if (( VERBOSE )); then sed 's/^/  /' "$wiki_err" >&2 || true; fi;
             rm -rf "$dir/wiki.git";
         fi;
         rm -f "$wiki_err";
@@ -377,7 +377,7 @@ reset_local_checkout ()
 
     git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
 
-    # Drop every local branch config section before rebuilding only main's
+    # Drop every local branch config section before rebuilding only the default branch's
     # upstream. This also catches orphaned branch.<name>.* settings whose branch
     # ref was deleted before this reset.
     mapfile -t branch_sections < <(
