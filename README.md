@@ -6,7 +6,7 @@ The new repository gets **one brand-new root commit named `Initial commit`**. Ol
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
-> This deletes and recreates a repository. It also deletes detected reset-target GitHub Packages, such as `ghcr.io/OWNER/REPO`. Run `--dry-run` first.
+> This deletes and recreates a repository. It also deletes concrete same-owner GitHub Packages detected from the repository, such as `ghcr.io/OWNER/REPO` and `ghcr.io/OWNER/sidecar`. Run `--dry-run` first.
 
 ## Requirements
 
@@ -64,12 +64,12 @@ It cannot automatically recover:
 - webhook signing secrets
 - self-hosted runner registration/authentication tokens
 - GitHub App/OAuth grants tied to the old repository identity
-- GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so the tool scans the default branch for likely GitHub Packages dependencies and reports package-access candidates for manual review
+- GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so concrete same-owner package references are deleted as reset targets while unresolved registry-only usage remains a manual follow-up
 - external cloud/OIDC trust that embeds the old GitHub repository ID
 
 It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, old commit history, or package artifacts deleted as reset targets. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
 
-When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants. Package references whose name matches the target repository name are separately recorded in `package-reset-targets.tsv` and deleted before repository deletion; unrelated dependencies such as sidecars are not deletion targets.
+When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants. Every concrete same-owner package reference is copied to `package-reset-targets.tsv` and deleted before repository deletion, including sidecars such as `ghcr.io/OWNER/tailscale-bunny`. Registry usage without a concrete package name stays a manual follow-up.
 
 ## Layout
 
