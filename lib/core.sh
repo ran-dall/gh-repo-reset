@@ -1,5 +1,9 @@
 # Shared logging, GitHub API, serialization, and UI helpers.
 
+DEFAULT_API_VERSION="2026-03-10"
+API_VERSION="${GH_REPO_RESET_API_VERSION:-$DEFAULT_API_VERSION}"
+[[ "$API_VERSION" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || API_VERSION="$DEFAULT_API_VERSION"
+
 log () 
 { 
     printf '[%s] %s\n' "$PROGRAM" "$*" 1>&2
