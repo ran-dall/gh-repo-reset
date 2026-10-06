@@ -242,6 +242,16 @@ GUARD_EOF
   # shellcheck disable=SC1090
   source "$BACKUP_DIR/repo-state.sh"
 
+  if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
+    log "Deleting repository-owned GitHub Packages..."
+    if ! delete_reset_packages "$BACKUP_DIR"; then
+      warn "Package cleanup failed; refusing to delete $REPO."
+      warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
+      [[ -s "$BACKUP_DIR/package-delete-errors.log" ]] && warn "Package errors: $BACKUP_DIR/package-delete-errors.log"
+      return 6
+    fi
+  fi
+
   log "Deleting and recreating $REPO..."
   if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
     printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
