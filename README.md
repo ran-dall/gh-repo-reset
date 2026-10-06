@@ -2,7 +2,7 @@
 
 `gh-repo-reset` is a Bash wrapper around GitHub CLI (`gh`) that **recreates a GitHub repository from scratch** while keeping the exact contents of its current default branch.
 
-The new repository gets **one brand-new root commit named `Initial commit`**. Old Git history, branches, and tags stay only in the local safety backup and are not pushed back.
+The new repository gets **one brand-new root commit named `Initial commit`**. When the command is run from the matching local checkout, that checkout is reset to the same one-commit history too. Old Git history, branches, and tags stay only in the timestamped safety backup.
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
@@ -197,7 +197,7 @@ A real destructive run uses persistent state storage:
 ${XDG_STATE_HOME:-$HOME/.local/state}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
 ```
 
-Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old Git mirror; keep that safety backup until the recreated repository, integrations, packages, workflows, and deployments have all been verified.
+Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old remote Git mirror. If the command is run inside the matching target checkout, `local.git/` also backs up that checkout's local refs before they are rewritten. A real reset refuses to rewrite a dirty checkout or one with multiple worktrees. Ignored files are left alone. Keep the safety backup until the recreated repository, local checkout, integrations, packages, workflows, and deployments have all been verified.
 
 If a destructive run is interrupted after the repository has been recreated, resume from that same backup instead of starting another reset:
 
@@ -205,6 +205,6 @@ If a destructive run is interrupted after the repository has been recreated, res
 ./gh-repo-reset --resume-from /path/to/backup
 ```
 
-Resume validates the backup, refuses to overwrite an unexpected default-branch commit, retries the initial push without `--force`, and continues the detected-state restore.
+Resume validates the backup, refuses to overwrite an unexpected default-branch commit, retries the initial push without `--force`, continues the detected-state restore, and resets the recorded matching local checkout when that local backup metadata is present.
 
 Easy peasy lemon squeezy — with a safety backup first.
