@@ -90,9 +90,19 @@ record_restore_failure ()
     fi
 }
 
+snapshot_manifest_file ()
+{
+    local name="$1";
+    if [[ -n "${GH_REPO_RESET_SNAPSHOT_WORKER_DIR:-}" ]]; then
+        printf '%s/%s' "$GH_REPO_RESET_SNAPSHOT_WORKER_DIR" "$name";
+    else
+        printf '%s/%s' "$BACKUP_DIR" "$name";
+    fi
+}
+
 record_snapshot_status ()
 {
-    local label="$1" status="$2";
+    local label="$1" status="$2" file;
     [[ -n "${BACKUP_DIR:-}" ]] || return 0;
     case "$status" in
         captured|absent|failed) ;;
@@ -100,21 +110,26 @@ record_snapshot_status ()
     esac;
     label="${label//$'\t'/ }";
     label="${label//$'\n'/ }";
-    printf '%s\t%s\n' "$label" "$status" >> "$BACKUP_DIR/snapshot-status.tsv" 2>/dev/null || true
+    file="$(snapshot_manifest_file snapshot-status.tsv)";
+    printf '%s\t%s\n' "$label" "$status" >> "$file" \
+      || die "could not write snapshot status manifest"
 }
 
 record_snapshot_failure ()
 {
-    local label="$1" errfile="${2:-}";
+    local label="$1" errfile="${2:-}" failures errors;
     [[ -n "${BACKUP_DIR:-}" ]] || return 0;
     record_snapshot_status "$label" failed;
-    printf '%s\n' "$label" >> "$BACKUP_DIR/snapshot-failures.txt" 2>/dev/null || true;
+    failures="$(snapshot_manifest_file snapshot-failures.txt)";
+    errors="$(snapshot_manifest_file snapshot-errors.log)";
+    printf '%s\n' "$label" >> "$failures" \
+      || die "could not write snapshot failure manifest";
     if [[ -n "$errfile" && -s "$errfile" ]]; then
         {
             printf '[%s]\n' "$label";
             cat "$errfile";
             printf '\n';
-        } >> "$BACKUP_DIR/snapshot-errors.log" 2>/dev/null || true;
+        } >> "$errors" || die "could not write snapshot error log";
     fi
 }
 
@@ -343,14 +358,34 @@ background_pid_running ()
     return 1
 }
 
+merge_snapshot_worker_manifests ()
+{
+    local root="$1" worker name;
+    [[ -d "$root" ]] || return 0;
+    shopt -s nullglob;
+    for worker in "$root"/*; do
+        [[ -d "$worker" ]] || continue;
+        for name in snapshot-status.tsv snapshot-failures.txt snapshot-errors.log; do
+            [[ -s "$worker/$name" ]] || continue;
+            cat "$worker/$name" >> "$BACKUP_DIR/$name" \
+              || die "could not merge snapshot worker manifest: $name";
+        done;
+    done;
+    shopt -u nullglob;
+    rm -rf "$root"
+}
+
 run_snapshot_jobs ()
 {
     local dir="$1";
     shift;
-    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0 progressed;
+    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0 progressed idx=0 worker_dir;
+    local workers="$dir/.snapshot-workers";
     local -a pids=() next=();
 
     [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+    rm -rf "$workers";
+    mkdir -p "$workers";
 
     for fn in "$@"; do
         while (( ${#pids[@]} >= limit )); do
@@ -368,7 +403,14 @@ run_snapshot_jobs ()
             (( progressed )) || sleep 0.05;
         done;
 
-        "$fn" "$dir" &
+        idx=$((idx+1));
+        printf -v worker_dir '%s/%04d' "$workers" "$idx";
+        mkdir -p "$worker_dir";
+        (
+            GH_REPO_RESET_SNAPSHOT_WORKER_DIR="$worker_dir";
+            export GH_REPO_RESET_SNAPSHOT_WORKER_DIR;
+            "$fn" "$dir"
+        ) &
         pids+=("$!");
     done;
 
@@ -376,7 +418,8 @@ run_snapshot_jobs ()
         wait "$pid" || status=1;
     done;
 
-    (( status == 0 )) || die "one or more snapshot jobs failed"
+    merge_snapshot_worker_manifests "$workers";
+    return "$status"
 }
 
 run_bounded_items ()
