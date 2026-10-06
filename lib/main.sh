@@ -71,6 +71,7 @@ restore_detected_state ()
 }
 
 gh_repo_reset_main() {
+  local requested_repo="" git_snapshot_pid="" api_snapshot_failed=0 git_snapshot_failed=0 repo_backup_root=""
   while (($#)); do
     case "$1" in
       --yes) YES=1 ;;
@@ -131,9 +132,14 @@ gh_repo_reset_main() {
 
   TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
   SAFE_REPO="${REPO//\//__}"
-  BACKUP_DIR="$BACKUP_ROOT/$SAFE_REPO/$TIMESTAMP"
-  mkdir -p "$BACKUP_DIR"
-  chmod 700 "$BACKUP_DIR" || true
+  repo_backup_root="$BACKUP_ROOT/$SAFE_REPO"
+  mkdir -p "$repo_backup_root" || die "could not create backup root: $repo_backup_root"
+  BACKUP_DIR="$repo_backup_root/$TIMESTAMP"
+  if ! mkdir "$BACKUP_DIR" 2>/dev/null; then
+    BACKUP_DIR="$(mktemp -d "$repo_backup_root/${TIMESTAMP}.XXXXXX")" \
+      || die "could not create a unique backup directory"
+  fi
+  chmod 700 "$BACKUP_DIR" || die "could not secure backup directory: $BACKUP_DIR"
   : > "$BACKUP_DIR/snapshot-status.tsv"
   : > "$BACKUP_DIR/snapshot-failures.txt"
   : > "$BACKUP_DIR/snapshot-errors.log"
@@ -160,7 +166,7 @@ gh_repo_reset_main() {
   local git_snapshot_pid=$!
 
   # Broad independent API reads share the rolling snapshot pool.
-  run_snapshot_jobs "$BACKUP_DIR" \
+  if ! run_snapshot_jobs "$BACKUP_DIR" \
     snapshot_history_metadata \
     snapshot_environments \
     snapshot_labels \
@@ -176,19 +182,35 @@ gh_repo_reset_main() {
     snapshot_app_installations \
     snapshot_custom_properties \
     snapshot_pages \
-    snapshot_webhooks
+    snapshot_webhooks; then
+    api_snapshot_failed=1
+  fi
 
   # N+1 membership/detail surfaces run as dedicated bounded stages instead of
-  # nesting another pool inside the broad snapshot pool.
-  snapshot_org_bindings "$BACKUP_DIR"
-  snapshot_package_reset_targets "$BACKUP_DIR"
+  # nesting another pool inside the broad snapshot pool. Do not start more API
+  # work if a broad snapshot worker failed unexpectedly.
+  if (( ! api_snapshot_failed )); then
+    snapshot_org_bindings "$BACKUP_DIR"
+    snapshot_package_reset_targets "$BACKUP_DIR"
+  fi
 
   if wait "$git_snapshot_pid"; then
-    record_snapshot_status "Git mirror backup" captured
+    if [[ -s "$BACKUP_DIR/git-state.sh" ]]; then
+      cat "$BACKUP_DIR/git-state.sh" >> "$BACKUP_DIR/repo-state.sh" \
+        || die "could not merge Git backup state"
+      rm -f "$BACKUP_DIR/git-state.sh"
+      record_snapshot_status "Git mirror backup" captured
+    else
+      record_snapshot_failure "Git mirror backup state"
+      git_snapshot_failed=1
+    fi
   else
     record_snapshot_failure "Git mirror backup"
-    die "Git mirror backup failed"
+    git_snapshot_failed=1
   fi
+
+  (( api_snapshot_failed )) && record_snapshot_failure "API snapshot worker pool"
+  (( git_snapshot_failed )) && vlog "Git mirror backup did not complete cleanly."
 
   if [[ ! -s "$BACKUP_DIR/snapshot-status.tsv" ]]; then
     warn "Snapshot status manifest is empty; refusing to continue."
