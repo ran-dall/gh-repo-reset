@@ -334,6 +334,15 @@ tsv_decode ()
     printf '%b' "$1"
 }
 
+background_pid_running ()
+{
+    local needle="$1" running;
+    while IFS= read -r running; do
+        [[ "$running" == "$needle" ]] && return 0;
+    done < <(jobs -pr);
+    return 1
+}
+
 run_snapshot_jobs ()
 {
     local dir="$1";
@@ -348,7 +357,7 @@ run_snapshot_jobs ()
             progressed=0;
             next=();
             for pid in "${pids[@]}"; do
-                if kill -0 "$pid" 2>/dev/null; then
+                if background_pid_running "$pid"; then
                     next+=("$pid");
                     continue;
                 fi;
@@ -387,7 +396,7 @@ run_bounded_items ()
             progressed=0;
             next=();
             for pid in "${pids[@]}"; do
-                if kill -0 "$pid" 2>/dev/null; then
+                if background_pid_running "$pid"; then
                     next+=("$pid");
                     continue;
                 fi;
