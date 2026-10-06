@@ -370,6 +370,45 @@ run_snapshot_jobs ()
     (( status == 0 )) || die "one or more snapshot jobs failed"
 }
 
+run_bounded_items ()
+{
+    local input="$1" worker="$2" workdir="$3";
+    shift 3;
+    local limit="${GH_REPO_RESET_JOBS:-4}" item pid status=0 progressed idx=0;
+    local -a pids=() next=();
+
+    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+
+    while IFS= read -r item || [[ -n "$item" ]]; do
+        [[ -n "$item" ]] || continue;
+        idx=$((idx+1));
+
+        while (( ${#pids[@]} >= limit )); do
+            progressed=0;
+            next=();
+            for pid in "${pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    next+=("$pid");
+                    continue;
+                fi;
+                wait "$pid" || status=1;
+                progressed=1;
+            done;
+            pids=("${next[@]}");
+            (( progressed )) || sleep 0.05;
+        done;
+
+        "$worker" "$workdir" "$idx" "$item" "$@" &
+        pids+=("$!");
+    done < "$input";
+
+    for pid in "${pids[@]}"; do
+        wait "$pid" || status=1;
+    done;
+
+    return "$status"
+}
+
 bool () 
 { 
     case "${1:-false}" in 
