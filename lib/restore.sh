@@ -351,13 +351,7 @@ restore_environment_policy ()
         if (( has_restricted_rules )); then
             record_manual_item environment_policy "environment '$ENV_NAME' wait timer or required reviewers could not be restored automatically";
             warn "environment '$ENV_NAME' restored without wait timer/required-reviewer protection rules";
-            if [[ -n "${BACKUP_DIR:-}" ]]; then
-                {
-                    printf '[environment policy %s: full policy rejected, fallback succeeded]\n' "$ENV_NAME";
-                    cat "$first_err";
-                    printf '\n';
-                } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
-            fi;
+            append_restore_error "environment policy $ENV_NAME: full policy rejected, fallback succeeded" "$first_err";
         else
             vlog "Environment '$ENV_NAME' restored via branch-policy-compatible fallback.";
         fi;
@@ -366,15 +360,13 @@ restore_environment_policy ()
     fi;
 
     record_restore_failure "restoring environment policy $ENV_NAME";
-    if [[ -n "${BACKUP_DIR:-}" ]]; then
-        {
-            printf '[restoring environment policy %s]\n' "$ENV_NAME";
-            cat "$first_err";
-            printf '[fallback]\n';
-            cat "$fallback_err";
-            printf '\n';
-        } >> "$BACKUP_DIR/restore-errors.log" 2>/dev/null || true;
-    fi;
+    {
+        cat "$first_err";
+        printf '[fallback]\n';
+        cat "$fallback_err";
+    } > "$envdir/environment-policy-combined.err";
+    append_restore_error "restoring environment policy $ENV_NAME" "$envdir/environment-policy-combined.err";
+    rm -f "$envdir/environment-policy-combined.err";
     warn "restoring environment policy $ENV_NAME failed; continuing.";
     rm -f "$first_err" "$fallback_err" "$fallback";
     return 0
