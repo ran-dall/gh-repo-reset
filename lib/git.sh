@@ -126,30 +126,39 @@ record_package_actions_access_followup ()
 
 snapshot_package_reset_targets ()
 {
-    local dir="$1" type name url out repo_name;
+    local dir="$1" out repo_name list_endpoint package_base name linked_repo_id;
     source "$dir/repo-state.sh";
     out="$dir/package-reset-targets.tsv";
     repo_name="${REPO#*/}";
     : > "$out";
 
-    # A repository reset always targets the same-owner package whose package
-    # name matches the repository name. A 404 during deletion is treated as
-    # already absent, so this is safe even when that package was never published.
+    # Keep a same-name fallback for legacy/unlinked GHCR packages. GitHub does
+    # not automatically link packages pushed from the CLI, even if their name
+    # matches the repository name.
     printf 'container\t%s\n' "$repo_name" >> "$out";
 
-    # Also include any other concrete same-owner packages actually referenced
-    # by the repository snapshot. Registry-only usage without a package name
-    # cannot be safely targeted automatically.
-    if [[ -s "$dir/package-actions-access.tsv" ]]; then
-        while IFS=$'\t' read -r type name url; do
-            [[ -n "$type" && -n "$name" ]] || continue;
-            [[ "$name" != "<registry-used>" && "$name" != "<workflow-uses-packages>" ]] || continue;
-            case "$type" in
-                container|npm|maven|rubygems|docker|nuget) ;;
-                *) continue ;;
-            esac;
-            printf '%s\t%s\n' "$type" "$name" >> "$out";
-        done < "$dir/package-actions-access.tsv";
+    if [[ "${OWNER_TYPE:-User}" == Organization ]]; then
+        list_endpoint="orgs/$OWNER/packages?package_type=container&per_page=100";
+        package_base="orgs/$OWNER/packages/container";
+    else
+        list_endpoint="users/$OWNER/packages?package_type=container&per_page=100";
+        package_base="users/$OWNER/packages/container";
+    fi;
+
+    # Repository linkage is the authoritative provenance signal for containers
+    # published from this repository. Enumerate owner-scoped containers, fetch
+    # each package detail, and keep only packages linked to this repository ID.
+    snapshot_capture "$dir/container-package-names.txt" "owner container packages" \
+      api --paginate "$list_endpoint" --jq '.[].name';
+
+    if [[ -f "$dir/container-package-names.txt" ]]; then
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue;
+            linked_repo_id="$(snapshot_value "container package $name repository association" "" \
+              api "$package_base/$(urlencode "$name")" --jq '.repository.id // empty')";
+            [[ -n "$linked_repo_id" && "$linked_repo_id" == "$REPO_ID" ]] || continue;
+            printf 'container\t%s\n' "$name" >> "$out";
+        done < "$dir/container-package-names.txt";
     fi;
 
     sort -u "$out" -o "$out";
