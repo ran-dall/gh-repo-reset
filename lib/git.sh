@@ -300,7 +300,7 @@ prepare_local_checkout_reset ()
 
 reset_local_checkout ()
 {
-    local dir="$1" root expected remote_head ref branch_name status wt old_head expected_count actual_count;
+    local dir="$1" root expected remote_head ref branch_name status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
@@ -366,7 +366,14 @@ reset_local_checkout ()
     [[ "$(git -C "$root" rev-list --parents -n1 HEAD | awk '{print NF-1}')" -eq 0 ]] || die "local checkout still has parent history";
     [[ "$(git -C "$root" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]] || die "local repository still has extra local branches";
     [[ -z "$(git -C "$root" for-each-ref --format='%(refname)' refs/tags)" ]] || die "local repository still has tags";
-    log "Local repository reset to the fresh initial commit across $expected_count worktree(s)."
+
+    unexpected_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs | grep -Fvx "refs/heads/$DEFAULT_BRANCH" | grep -Fvx "refs/remotes/origin/$DEFAULT_BRANCH" || true)";
+    [[ -z "$unexpected_refs" ]] || die "local repository still has unexpected refs: $(printf '%s' "$unexpected_refs" | paste -sd, -)";
+
+    unexpected_branch_config="$(git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null | grep -Fvx "branch.$DEFAULT_BRANCH.remote" | grep -Fvx "branch.$DEFAULT_BRANCH.merge" || true)";
+    [[ -z "$unexpected_branch_config" ]] || die "local repository still has stale branch config: $(printf '%s' "$unexpected_branch_config" | paste -sd, -)";
+
+    log "Local repository reset to the fresh initial commit across $expected_count worktree(s). Only $DEFAULT_BRANCH and origin/$DEFAULT_BRANCH remain."
 }
 
 prepare_initial_commit () 
