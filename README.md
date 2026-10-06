@@ -6,7 +6,7 @@ The new repository gets **one brand-new root commit named `Initial commit`**. Ol
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
-> This deletes and recreates a repository. Run `--dry-run` first.
+> This deletes and recreates a repository. It also deletes detected reset-target GitHub Packages, such as `ghcr.io/OWNER/REPO`. Run `--dry-run` first.
 
 ## Requirements
 
@@ -22,6 +22,8 @@ Repository deletion requires the `delete_repo` scope:
 ```bash
 gh auth refresh -s delete_repo
 ```
+
+If the snapshot detects GitHub Packages to delete, package cleanup also requires package admin access. Classic tokens need `read:packages` and `delete:packages`; package cleanup failure stops the reset before repository deletion.
 
 ## What it recreates
 
@@ -65,9 +67,9 @@ It cannot automatically recover:
 - GitHub Packages **Manage Actions access** grants tied to the old repository identity; GitHub does not expose those prior repository grants through a supported API, so the tool scans the default branch for likely GitHub Packages dependencies and reports package-access candidates for manual review
 - external cloud/OIDC trust that embeds the old GitHub repository ID
 
-It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, or old commit history. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
+It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, old commit history, or package artifacts deleted as reset targets. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
 
-When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants.
+When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants. Package references whose name matches the target repository name are separately recorded in `package-reset-targets.tsv` and deleted before repository deletion; unrelated dependencies such as sidecars are not deletion targets.
 
 ## Layout
 
@@ -89,7 +91,7 @@ lib/
 └── main.sh                    # CLI parsing and lifecycle orchestration
 ```
 
-The intended flow is `preflight → snapshot → prepare fresh commit → reset → restore → follow-up`. Configuration that GitHub exposes is restored automatically where practical; unreadable or identity-bound credentials stay an explicit manual boundary instead of being silently skipped.
+The intended flow is `preflight → snapshot → prepare fresh commit → package cleanup → reset → restore → follow-up`. Configuration that GitHub exposes is restored automatically where practical; unreadable or identity-bound credentials stay an explicit manual boundary instead of being silently skipped.
 
 ## Run it remotely
 
