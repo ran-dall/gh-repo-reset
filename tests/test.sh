@@ -91,10 +91,12 @@ JSON_EOF
 
 test_git() (
   set -Eeuo pipefail
-  local tmp source mirror remote backup tree root
+  local tmp source linked detached mirror remote backup tree root
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   source="$tmp/source"
+  linked="$tmp/linked"
+  detached="$tmp/detached"
   mirror="$tmp/mirror.git"
   remote="$tmp/remote.git"
   backup="$tmp/backup"
@@ -110,6 +112,8 @@ test_git() (
   git -C "$source" branch old-branch HEAD~1
   git -C "$source" tag old-tag HEAD~1
   git -C "$source" remote add origin https://github.com/owner/repo.git
+  git -C "$source" worktree add -q "$linked" old-branch
+  git -C "$source" worktree add -q --detach "$detached" HEAD~1
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
@@ -122,9 +126,13 @@ test_git() (
 
   (cd "$source" && prepare_local_checkout_reset "$backup")
   [[ "$(cat "$backup/local-checkout.path")" == "$source" ]]
+  [[ "$(wc -l < "$backup/local-worktrees.tsv")" -eq 3 ]]
+  grep -Fq "$linked" "$backup/local-worktrees.tsv"
+  grep -Fq "$detached" "$backup/local-worktrees.tsv"
   [[ -d "$backup/local.git" ]]
   git -C "$backup/local.git" show-ref --verify --quiet refs/heads/old-branch
   git -C "$backup/local.git" show-ref --verify --quiet refs/tags/old-tag
+  [[ "$(git -C "$backup/local.git" for-each-ref --format='%(refname)' refs/gh-repo-reset/worktrees | wc -l)" -eq 3 ]]
 
   git clone -q --mirror "$source" "$mirror"
   git init -q --bare "$remote"
@@ -143,14 +151,20 @@ STATE_EOF
   git -C "$source" remote set-url origin "$remote"
   reset_local_checkout "$backup"
 
+  [[ -d "$linked" && -d "$detached" ]]
+  [[ "$(git -C "$source" worktree list --porcelain | grep -c '^worktree ')" -eq 3 ]]
   [[ "$(git -C "$remote" rev-parse refs/heads/main)" == "$root" ]]
   [[ "$(git -C "$remote" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
   [[ "$(git -C "$remote" rev-list --parents -n1 "$root" | awk '{print NF-1}')" -eq 0 ]]
   [[ "$(git -C "$source" rev-parse HEAD)" == "$root" ]]
+  [[ "$(git -C "$linked" rev-parse HEAD)" == "$root" ]]
+  [[ "$(git -C "$detached" rev-parse HEAD)" == "$root" ]]
   [[ "$(git -C "$source" rev-list --count HEAD)" -eq 1 ]]
   [[ "$(git -C "$source" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
   [[ -z "$(git -C "$source" for-each-ref --format='%(refname)' refs/tags)" ]]
   [[ -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)" ]]
+  [[ -z "$(git -C "$linked" status --porcelain=v1 --untracked-files=all)" ]]
+  [[ -z "$(git -C "$detached" status --porcelain=v1 --untracked-files=all)" ]]
   echo 'git: ok'
 )
 
