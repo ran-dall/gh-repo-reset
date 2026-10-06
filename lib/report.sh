@@ -71,18 +71,6 @@ count_child_files ()
     find "$dir" -mindepth 1 -maxdepth 1 -type f -print 2>/dev/null | awk 'END { print NR+0 }'
 }
 
-count_secret_names ()
-{
-    local dir="$1" f total=0 n;
-    shopt -s nullglob;
-    for f in "$dir"/secrets/*.names "$dir"/environments/*/actions-secret-names.txt; do
-        n="$(count_nonempty_lines "$f")";
-        total=$((total+n));
-    done;
-    shopt -u nullglob;
-    printf '%s' "$total"
-}
-
 count_environment_variables ()
 {
     local dir="$1" envdir total=0;
