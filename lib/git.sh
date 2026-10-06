@@ -234,55 +234,93 @@ detect_local_target_checkout ()
 
 prepare_local_checkout_reset ()
 {
-    local dir="$1" root status worktree_count;
+    local dir="$1" root status wt head idx=0 dirty=0;
     root="$(detect_local_target_checkout 2>/dev/null)" || return 0;
     printf '%s\n' "$root" > "$dir/local-checkout.path";
+    : > "$dir/local-worktrees.tsv";
+
+    while IFS= read -r wt; do
+        [[ -n "$wt" ]] || continue;
+        head="$(git -C "$wt" rev-parse HEAD 2>/dev/null)" || {
+            warn "Could not read linked worktree HEAD: $wt";
+            return 1;
+        };
+        printf '%s\t%s\n' "$wt" "$head" >> "$dir/local-worktrees.tsv";
+        status="$(git -C "$wt" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
+        if [[ -n "$status" ]]; then
+            dirty=1;
+            if (( ${DRY_RUN:-0} )); then
+                warn "Linked worktree is dirty; a real reset would refuse to modify it: $wt";
+            else
+                warn "Linked worktree is dirty; refusing destructive reset: $wt";
+            fi;
+        fi;
+    done < <(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p');
+
+    [[ -s "$dir/local-worktrees.tsv" ]] || {
+        warn "Could not inventory local worktrees: $root";
+        return 1;
+    };
 
     if (( ${DRY_RUN:-0} )); then
-        log "Would reset local checkout: $root";
-        status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
-        [[ -z "$status" ]] || warn "Local checkout is dirty; a real reset would refuse to modify it.";
+        log "Would reset local repository: $root ($(wc -l < "$dir/local-worktrees.tsv") worktree(s))";
         return 0;
     fi;
 
-    status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
-    if [[ -n "$status" ]]; then
-        warn "Local checkout is dirty; refusing destructive reset: $root";
-        return 1;
-    fi;
-
-    worktree_count="$(git -C "$root" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)";
-    if [[ "$worktree_count" -ne 1 ]]; then
-        warn "Local checkout has $worktree_count worktrees; refusing to rewrite local refs: $root";
-        return 1;
-    fi;
+    (( dirty == 0 )) || return 1;
 
     rm -rf "$dir/local.git";
     if ! git clone --mirror --no-hardlinks "$root" "$dir/local.git" >/dev/null 2>&1; then
-        warn "Could not back up local checkout refs: $root";
+        warn "Could not back up local repository refs: $root";
         return 1;
     fi;
-    record_snapshot_status "local checkout backup" captured;
-    log "Backed up local checkout refs: $root";
+
+    # Preserve every worktree HEAD explicitly, including detached HEADs that may
+    # not otherwise be reachable from a branch or tag in the mirror backup.
+    while IFS=$'\t' read -r wt head; do
+        idx=$((idx+1));
+        if ! git -C "$dir/local.git" fetch --quiet --no-tags "$root" "+$head:refs/gh-repo-reset/worktrees/$idx"; then
+            warn "Could not back up linked worktree HEAD: $wt";
+            return 1;
+        fi;
+    done < "$dir/local-worktrees.tsv";
+
+    record_snapshot_status "local repository backup" captured;
+    log "Backed up local repository and $(wc -l < "$dir/local-worktrees.tsv") worktree(s): $root";
     return 0
 }
 
 reset_local_checkout ()
 {
-    local dir="$1" root expected remote_head ref status;
+    local dir="$1" root expected remote_head ref status wt old_head expected_count actual_count;
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
     git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || die "local checkout is no longer a Git repository: $root";
+    [[ -s "$dir/local-worktrees.tsv" ]] || die "local worktree inventory is missing from the safety backup";
 
-    status="$(git -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
-    [[ -z "$status" ]] || die "local checkout became dirty during reset; refusing to overwrite it: $root";
+    expected_count="$(wc -l < "$dir/local-worktrees.tsv")";
+    actual_count="$(git -C "$root" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)";
+    [[ "$actual_count" -eq "$expected_count" ]] || die "local worktree set changed during reset; refusing to rewrite it";
+
+    while IFS=$'\t' read -r wt old_head; do
+        [[ -d "$wt" ]] || die "linked worktree no longer exists: $wt";
+        status="$(git -C "$wt" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)";
+        [[ -z "$status" ]] || die "linked worktree became dirty during reset; refusing to overwrite it: $wt";
+    done < "$dir/local-worktrees.tsv";
 
     expected="$(cat "$dir/initial-commit.txt")";
-    log "Resetting local checkout: $root";
+    log "Resetting local repository: $root";
     git -C "$root" fetch --prune --no-tags origin >/dev/null 2>&1 || die "could not fetch recreated $REPO into local checkout";
     remote_head="$(git -C "$root" rev-parse "refs/remotes/origin/$DEFAULT_BRANCH" 2>/dev/null || true)";
     [[ "$remote_head" == "$expected" ]] || die "local origin/$DEFAULT_BRANCH does not match the prepared initial commit";
+
+    # Detach every secondary worktree first so their old branch refs can be
+    # removed safely. The worktree directories themselves are preserved.
+    while IFS=$'\t' read -r wt old_head; do
+        [[ "$wt" == "$root" ]] && continue;
+        git -C "$wt" checkout --detach "$expected" >/dev/null 2>&1 || die "could not reset linked worktree: $wt";
+    done < "$dir/local-worktrees.tsv";
 
     git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
     git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
@@ -298,11 +336,16 @@ reset_local_checkout ()
     git -C "$root" reflog expire --expire=now --all >/dev/null 2>&1 || true;
     git -C "$root" gc --prune=now >/dev/null 2>&1 || true;
 
+    while IFS=$'\t' read -r wt old_head; do
+        [[ "$(git -C "$wt" rev-parse HEAD)" == "$expected" ]] || die "linked worktree did not reset to the fresh initial commit: $wt";
+        [[ -z "$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" ]] || die "linked worktree is not clean after reset: $wt";
+    done < "$dir/local-worktrees.tsv";
+
     [[ "$(git -C "$root" rev-parse HEAD)" == "$expected" ]] || die "local checkout HEAD does not match the fresh initial commit";
     [[ "$(git -C "$root" rev-list --parents -n1 HEAD | awk '{print NF-1}')" -eq 0 ]] || die "local checkout still has parent history";
-    [[ "$(git -C "$root" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]] || die "local checkout still has extra local branches";
-    [[ -z "$(git -C "$root" for-each-ref --format='%(refname)' refs/tags)" ]] || die "local checkout still has tags";
-    log "Local checkout reset to the fresh initial commit."
+    [[ "$(git -C "$root" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]] || die "local repository still has extra local branches";
+    [[ -z "$(git -C "$root" for-each-ref --format='%(refname)' refs/tags)" ]] || die "local repository still has tags";
+    log "Local repository reset to the fresh initial commit across $expected_count worktree(s)."
 }
 
 prepare_initial_commit () 
