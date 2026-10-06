@@ -124,12 +124,12 @@ test_git() (
   git -C "$source" -c user.name=Tester -c user.email=test@example.com commit -q -m two
   git -C "$source" branch old-branch HEAD~1
   git -C "$source" tag old-tag HEAD~1
-  git -C "$source" remote add origin https://github.com/owner/repo.git
-  git -C "$source" config branch.old-branch.remote origin
+  git -C "$source" remote add upstream https://github.com/owner/repo.git
+  git -C "$source" config branch.old-branch.remote upstream
   git -C "$source" config branch.old-branch.merge refs/heads/old-branch
-  git -C "$source" config branch.ghost.remote origin
+  git -C "$source" config branch.ghost.remote upstream
   git -C "$source" config branch.ghost.merge refs/heads/ghost
-  git -C "$source" update-ref refs/remotes/origin/old-branch HEAD~1
+  git -C "$source" update-ref refs/remotes/upstream/old-branch HEAD~1
   git -C "$source" update-ref refs/archive/old HEAD~1
   git -C "$source" update-ref refs/notes/review HEAD~1
   printf 'stash-only\n' >> "$source/file.txt"
@@ -151,6 +151,7 @@ test_git() (
 
   (cd "$source" && prepare_local_checkout_reset "$backup")
   [[ "$(cat "$backup/local-checkout.path")" == "$source" ]]
+  [[ "$(cat "$backup/local-remote.name")" == upstream ]]
   [[ "$(git -C "$source" worktree list --porcelain | grep -c '^worktree ')" -eq 3 ]]
   ! grep -Fq "$stale" "$backup/local-worktrees.tsv"
   [[ "$(wc -l < "$backup/local-worktrees.tsv")" -eq 3 ]]
@@ -159,7 +160,7 @@ test_git() (
   [[ -d "$backup/local.git" ]]
   git -C "$backup/local.git" show-ref --verify --quiet refs/heads/old-branch
   git -C "$backup/local.git" show-ref --verify --quiet refs/tags/old-tag
-  git -C "$backup/local.git" show-ref --verify --quiet refs/remotes/origin/old-branch
+  git -C "$backup/local.git" show-ref --verify --quiet refs/remotes/upstream/old-branch
   git -C "$backup/local.git" show-ref --verify --quiet refs/archive/old
   git -C "$backup/local.git" show-ref --verify --quiet refs/notes/review
   git -C "$backup/local.git" show-ref --verify --quiet refs/stash
@@ -179,7 +180,7 @@ REPO=owner/repo
 DEFAULT_BRANCH=main
 STATE_EOF
 
-  git -C "$source" remote set-url origin "$remote"
+  git -C "$source" remote set-url upstream "$remote"
   reset_local_checkout "$backup"
 
   [[ -d "$linked" && -d "$detached" ]]
@@ -195,8 +196,8 @@ STATE_EOF
   [[ -z "$(git -C "$source" for-each-ref --format='%(refname)' refs/tags)" ]]
   [[ "$(git -C "$source" for-each-ref --format='%(refname)' refs | wc -l)" -eq 2 ]]
   git -C "$source" show-ref --verify --quiet refs/heads/main
-  git -C "$source" show-ref --verify --quiet refs/remotes/origin/main
-  ! git -C "$source" show-ref --verify --quiet refs/remotes/origin/old-branch
+  git -C "$source" show-ref --verify --quiet refs/remotes/upstream/main
+  ! git -C "$source" show-ref --verify --quiet refs/remotes/upstream/old-branch
   ! git -C "$source" show-ref --verify --quiet refs/archive/old
   ! git -C "$source" show-ref --verify --quiet refs/notes/review
   ! git -C "$source" show-ref --verify --quiet refs/stash
