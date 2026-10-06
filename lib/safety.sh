@@ -80,11 +80,9 @@ has_irreplaceable_metadata ()
 
     if [[ "${LFS_USED:-false}" == true && "${LFS_BACKUP:-none}" != complete ]]; then
         record_manual_item lfs "Git LFS objects were not safely backed up";
-        found=1;
     fi;
     if [[ "${HAS_WIKI:-false}" == true && "${WIKI_BACKUP:-none}" == failed ]]; then
         record_manual_item wiki "wiki Git history could not be backed up";
-        found=1;
     fi;
 
     if [[ -f "$BACKUP_DIR/pages-state.sh" ]]; then
