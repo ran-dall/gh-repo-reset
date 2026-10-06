@@ -268,7 +268,7 @@ gh_repo_reset_main() {
 
   if (( DRY_RUN )); then
     log "Dry run complete — no changes made."
-    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
+    (( metadata_present && ! ALLOW_METADATA_LOSS )) && log "A real reset requires --allow-metadata-loss."
     (( ${#content_backup_issues[@]} )) && warn "A real reset is blocked until: $(join_semicolon "${content_backup_issues[@]}")."
     log "Snapshot: $BACKUP_DIR"
     return 0
