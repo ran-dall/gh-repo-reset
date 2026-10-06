@@ -91,12 +91,13 @@ JSON_EOF
 
 test_git() (
   set -Eeuo pipefail
-  local tmp source linked detached mirror remote backup tree root
+  local tmp source linked detached stale mirror remote backup tree root
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   source="$tmp/source"
   linked="$tmp/linked"
   detached="$tmp/detached"
+  stale="$tmp/stale"
   mirror="$tmp/mirror.git"
   remote="$tmp/remote.git"
   backup="$tmp/backup"
@@ -114,6 +115,9 @@ test_git() (
   git -C "$source" remote add origin https://github.com/owner/repo.git
   git -C "$source" worktree add -q "$linked" old-branch
   git -C "$source" worktree add -q --detach "$detached" HEAD~1
+  git -C "$source" worktree add -q --detach "$stale" HEAD~1
+  rm -rf "$stale"
+  [[ "$(git -C "$source" worktree list --porcelain | grep -c '^worktree ')" -eq 4 ]]
 
   PROGRAM=gh-repo-reset-test
   VERBOSE=0
@@ -126,6 +130,8 @@ test_git() (
 
   (cd "$source" && prepare_local_checkout_reset "$backup")
   [[ "$(cat "$backup/local-checkout.path")" == "$source" ]]
+  [[ "$(git -C "$source" worktree list --porcelain | grep -c '^worktree ')" -eq 3 ]]
+  ! grep -Fq "$stale" "$backup/local-worktrees.tsv"
   [[ "$(wc -l < "$backup/local-worktrees.tsv")" -eq 3 ]]
   grep -Fq "$linked" "$backup/local-worktrees.tsv"
   grep -Fq "$detached" "$backup/local-worktrees.tsv"
