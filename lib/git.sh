@@ -373,7 +373,7 @@ reset_local_checkout ()
     # upstream. This also catches orphaned branch.<name>.* settings whose branch
     # ref was deleted before this reset.
     mapfile -t branch_sections < <(
-        git -C "$root" config --local --name-only --get-regexp '^branch\\.' 2>/dev/null \
+        git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null \
           | awk -F. 'NF >= 3 { key=$NF; sub("\\." key "$", ""); print }' \
           | sort -u
     );
