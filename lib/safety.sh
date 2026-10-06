@@ -111,7 +111,7 @@ confirm_reset ()
     package_count="$(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv")";
     printf '\nThis will DELETE and RECREATE %s with ONE fresh initial commit.\n' "$REPO" 1>&2;
     if (( package_count )); then
-        printf 'It will also DELETE %s repository-owned GitHub package(s) detected for this reset.\n' "$package_count" 1>&2;
+        printf 'It will also DELETE %s detected same-owner GitHub package(s) for this reset.\n' "$package_count" 1>&2;
     fi;
     printf 'Type the full repository name (%s) to continue: ' "$REPO" 1>&2;
     if [[ -r /dev/tty ]]; then
