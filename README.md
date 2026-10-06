@@ -2,7 +2,7 @@
 
 `gh-repo-reset` is a Bash wrapper around GitHub CLI (`gh`) that **recreates a GitHub repository from scratch** while keeping the exact contents of its current default branch.
 
-The new repository gets **one brand-new root commit named `Initial commit`**. When the command is run from a matching local worktree, the whole local repository is reset too: every clean linked worktree lands on that root commit, while only the current worktree keeps the `main` branch. Old Git history, branches, and tags stay only in the timestamped safety backup.
+The new repository gets **one brand-new root commit named `Initial commit`**. When the command is run from a matching local worktree, the whole local repository is reset too: every clean linked worktree lands on that root commit, while only the current worktree keeps the `main` branch. The shared local ref namespace is scrubbed to only `refs/heads/main` and `refs/remotes/origin/main`; stale worktree registrations, tags, stash/notes/custom refs, extra remote-tracking refs, reflogs, unreachable objects, and orphaned `branch.<name>.*` config are removed. Old Git history and refs stay only in the timestamped safety backup.
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
@@ -197,7 +197,7 @@ A real destructive run uses persistent state storage:
 ${XDG_STATE_HOME:-$HOME/.local/state}/gh-repo-reset/OWNER__REPO/TIMESTAMP/
 ```
 
-Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old remote Git mirror. If the command is run inside a matching target worktree, `local.git/` also backs up the local repository refs and every worktree HEAD before they are rewritten. Every linked worktree must be clean. Secondary worktree directories are preserved and detached onto the fresh root commit; the worktree you ran from becomes the sole local `main` branch. Ignored files are left alone. Keep the safety backup until the recreated repository, local worktrees, integrations, packages, workflows, and deployments have all been verified.
+Pass `--backup-dir DIR` to override either location. Dry-run snapshots are disposable and do not open browser windows. For a real reset, `git.git/` is the full old remote Git mirror. If the command is run inside a matching target worktree, `local.git/` also backs up the local repository refs and every worktree HEAD before they are rewritten. Every linked worktree must be clean. Stale worktree registrations are pruned before and after the rewrite. Secondary worktree directories are preserved and detached onto the fresh root commit; the worktree you ran from becomes the sole local `main` branch tracking `origin/main`. Ignored files are left alone. Keep the safety backup until the recreated repository, local worktrees, integrations, packages, workflows, and deployments have all been verified.
 
 If a destructive run is interrupted after the repository has been recreated, resume from that same backup instead of starting another reset:
 
