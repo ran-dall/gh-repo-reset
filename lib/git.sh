@@ -301,6 +301,7 @@ prepare_local_checkout_reset ()
 reset_local_checkout ()
 {
     local dir="$1" root expected remote_head ref branch_section status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
+    local -a branch_sections=();
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
@@ -335,14 +336,15 @@ reset_local_checkout ()
     # Drop every local branch config section before rebuilding only main's
     # upstream. This also catches orphaned branch.<name>.* settings whose branch
     # ref was deleted before this reset.
-    while IFS= read -r branch_section; do
-        [[ -n "$branch_section" ]] || continue;
-        git -C "$root" config --local --remove-section "$branch_section" >/dev/null 2>&1 || true;
-    done < <(
+    mapfile -t branch_sections < <(
         git -C "$root" config --local --name-only --get-regexp '^branch\\.' 2>/dev/null \
           | awk -F. 'NF >= 3 { key=$NF; sub("\\." key "$", ""); print }' \
           | sort -u
     );
+    for branch_section in "${branch_sections[@]}"; do
+        [[ -n "$branch_section" ]] || continue;
+        git -C "$root" config --local --remove-section "$branch_section" >/dev/null 2>&1 || true;
+    done;
     git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
       || die "could not set local $DEFAULT_BRANCH to track origin/$DEFAULT_BRANCH";
 
