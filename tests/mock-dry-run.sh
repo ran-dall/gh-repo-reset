@@ -176,6 +176,17 @@ set -Eeuo pipefail
 printf '%s\n' "$*" >>"$MOCK_OPEN_LOG"
 OPEN_EOF
 chmod +x "$TMP/bin/xdg-open"
+cat >"$TMP/bin/date" <<'DATE_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "$*" == "-u +%Y%m%dT%H%M%SZ" ]]; then
+  printf '20261006T000000Z\n'
+else
+  exec /usr/bin/date "$@"
+fi
+DATE_EOF
+chmod +x "$TMP/bin/date"
+mkdir -p "$TMP/tmp/gh-repo-reset/owner__repo/20261006T000000Z"
 export MOCK_SOURCE="$TMP/source" MOCK_GH_LOG="$TMP/gh.log" MOCK_MODULE_DIR="$PWD/lib" MOCK_OPEN_LOG="$TMP/open.log"
 if [[ "${PIPE_MODE:-0}" == 1 ]]; then
   cat ./gh-repo-reset | PATH="$TMP/bin:$PATH" XDG_STATE_HOME="$TMP/state" TMPDIR="$TMP/tmp" MOCK_SOURCE="$MOCK_SOURCE" MOCK_GH_LOG="$MOCK_GH_LOG" MOCK_MODULE_DIR="$MOCK_MODULE_DIR" MOCK_OPEN_LOG="$MOCK_OPEN_LOG" bash -s -- owner/repo --dry-run "$@" >"$TMP/out" 2>"$TMP/err"
@@ -195,7 +206,8 @@ else
   ! grep -q 'Plan \[auto\]' "$TMP/err"
 fi
 ! grep -q 'Deleting owner/repo' "$TMP/err"
-BACKUP="$(find "$TMP/tmp/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d | head -1)"
+BACKUP="$(find "$TMP/tmp/gh-repo-reset/owner__repo" -mindepth 1 -maxdepth 1 -type d ! -name '20261006T000000Z' | head -1)"
+[[ -n "$BACKUP" && "${BACKUP##*/}" == 20261006T000000Z.* ]]
 [[ -d "$BACKUP/git.git" && -f "$BACKUP/initial-commit.txt" && -f "$BACKUP/repo-state.sh" ]]
 # shellcheck disable=SC1090
 source "$BACKUP/repo-state.sh"
