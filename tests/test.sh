@@ -178,7 +178,6 @@ test_packages() (
   mkdir -p "$source/.github/workflows"
   cat > "$source/image.ts" <<'SRC_EOF'
 const imageRepository = "ghcr.io/kaiju-ind/twenty";
-const sidecar = "ghcr.io/kaiju-ind/tailscale-bunny:latest";
 SRC_EOF
   cat > "$source/.github/workflows/release.yml" <<'YAML_EOF'
 permissions:
@@ -205,13 +204,12 @@ STATE_EOF
   source ./lib/git.sh
 
   snapshot_package_actions_access_hints "$tmp"
-  grep -Fq $'container\ttailscale-bunny\t' "$tmp/package-actions-access.tsv"
   grep -Fq $'container\ttwenty\t' "$tmp/package-actions-access.tsv"
+  ! grep -Fq 'tailscale-bunny' "$tmp/package-actions-access.tsv"
 
   snapshot_package_reset_targets "$tmp"
-  grep -Fxq $'container\ttailscale-bunny' "$tmp/package-reset-targets.tsv"
   grep -Fxq $'container\ttwenty' "$tmp/package-reset-targets.tsv"
-  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 2 ]]
+  [[ "$(wc -l < "$tmp/package-reset-targets.tsv")" -eq 1 ]]
 
   DELETE_FAIL=0
   api() {
@@ -224,8 +222,8 @@ STATE_EOF
   }
 
   delete_reset_packages "$tmp"
-  grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/tailscale-bunny' "$tmp/package-api.log"
   grep -Fq -- '--method DELETE orgs/Kaiju-Ind/packages/container/twenty' "$tmp/package-api.log"
+  ! grep -Fq 'tailscale-bunny' "$tmp/package-api.log"
   [[ ! -s "$tmp/package-delete-failures.tsv" ]]
 
   DELETE_FAIL=1
@@ -233,7 +231,6 @@ STATE_EOF
     printf 'package deletion should have failed\n' >&2
     return 1
   fi
-  grep -Fxq $'container\ttailscale-bunny' "$tmp/package-delete-failures.tsv"
   grep -Fxq $'container\ttwenty' "$tmp/package-delete-failures.tsv"
   grep -Fq 'HTTP 403' "$tmp/package-delete-errors.log"
 
