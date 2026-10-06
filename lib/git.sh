@@ -182,7 +182,7 @@ delete_reset_packages ()
         [[ -n "$type" && -n "$name" ]] || continue;
         encoded="$(urlencode "$name")";
         err="$(mktemp)";
-        log "Deleting GitHub package $type/$name...";
+        vlog "Deleting GitHub package $type/$name...";
         if api --method DELETE "$base/$type/$encoded" > /dev/null 2> "$err"; then
             rm -f "$err";
             continue;
@@ -271,7 +271,7 @@ prepare_local_checkout_reset ()
     };
 
     if (( ${DRY_RUN:-0} )); then
-        log "Would reset local repository: $root ($(wc -l < "$dir/local-worktrees.tsv") worktree(s))";
+        vlog "Would reset local repository: $root ($(wc -l < "$dir/local-worktrees.tsv") worktree(s))";
         return 0;
     fi;
 
@@ -294,7 +294,7 @@ prepare_local_checkout_reset ()
     done < "$dir/local-worktrees.tsv";
 
     record_snapshot_status "local repository backup" captured;
-    log "Backed up local repository and $(wc -l < "$dir/local-worktrees.tsv") worktree(s): $root";
+    vlog "Backed up local repository and $(wc -l < "$dir/local-worktrees.tsv") worktree(s): $root";
     return 0
 }
 
@@ -319,7 +319,7 @@ reset_local_checkout ()
     done < "$dir/local-worktrees.tsv";
 
     expected="$(cat "$dir/initial-commit.txt")";
-    log "Resetting local repository: $root";
+    vlog "Resetting local repository: $root";
     git -C "$root" fetch --prune --no-tags origin >/dev/null 2>&1 || die "could not fetch recreated $REPO into local checkout";
     remote_head="$(git -C "$root" rev-parse "refs/remotes/origin/$DEFAULT_BRANCH" 2>/dev/null || true)";
     [[ "$remote_head" == "$expected" ]] || die "local origin/$DEFAULT_BRANCH does not match the prepared initial commit";
@@ -383,7 +383,7 @@ reset_local_checkout ()
     unexpected_branch_config="$(git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null | grep -Fvx "branch.$DEFAULT_BRANCH.remote" | grep -Fvx "branch.$DEFAULT_BRANCH.merge" || true)";
     [[ -z "$unexpected_branch_config" ]] || die "local repository still has stale branch config: $(printf '%s' "$unexpected_branch_config" | paste -sd, -)";
 
-    log "Local repository reset to the fresh initial commit across $expected_count worktree(s). Only $DEFAULT_BRANCH and origin/$DEFAULT_BRANCH remain."
+    vlog "Local repository reset to the fresh initial commit across $expected_count worktree(s). Only $DEFAULT_BRANCH and origin/$DEFAULT_BRANCH remain."
 }
 
 prepare_initial_commit () 
