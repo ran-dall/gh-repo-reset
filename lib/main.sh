@@ -251,7 +251,7 @@ GUARD_EOF
   source "$BACKUP_DIR/repo-state.sh"
 
   if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
-    log "Deleting detected same-owner GitHub Packages..."
+    vlog "Deleting $(count_nonempty_lines "$BACKUP_DIR/package-reset-targets.tsv") GitHub package(s)..."
     if ! delete_reset_packages "$BACKUP_DIR"; then
       warn "Package cleanup failed; refusing to delete $REPO."
       warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
