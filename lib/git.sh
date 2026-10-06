@@ -239,6 +239,14 @@ prepare_local_checkout_reset ()
     printf '%s\n' "$root" > "$dir/local-checkout.path";
     : > "$dir/local-worktrees.tsv";
 
+    # Missing worktree directories leave stale registrations behind. Prune only
+    # entries Git already considers removable before deciding which live
+    # worktrees must be inspected and reset.
+    if ! git -C "$root" worktree prune --expire=now >/dev/null 2>&1; then
+        warn "Could not prune stale worktree registrations: $root";
+        return 1;
+    fi;
+
     while IFS= read -r wt; do
         [[ -n "$wt" ]] || continue;
         head="$(git -C "$wt" rev-parse HEAD 2>/dev/null)" || {
