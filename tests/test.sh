@@ -113,6 +113,13 @@ test_git() (
   git -C "$source" branch old-branch HEAD~1
   git -C "$source" tag old-tag HEAD~1
   git -C "$source" remote add origin https://github.com/owner/repo.git
+  git -C "$source" config branch.old-branch.remote origin
+  git -C "$source" config branch.old-branch.merge refs/heads/old-branch
+  git -C "$source" update-ref refs/remotes/origin/old-branch HEAD~1
+  git -C "$source" update-ref refs/archive/old HEAD~1
+  git -C "$source" update-ref refs/notes/review HEAD~1
+  printf 'stash-only\n' >> "$source/file.txt"
+  git -C "$source" stash push -q -m stale-reset-fixture
   git -C "$source" worktree add -q "$linked" old-branch
   git -C "$source" worktree add -q --detach "$detached" HEAD~1
   git -C "$source" worktree add -q --detach "$stale" HEAD~1
@@ -138,6 +145,10 @@ test_git() (
   [[ -d "$backup/local.git" ]]
   git -C "$backup/local.git" show-ref --verify --quiet refs/heads/old-branch
   git -C "$backup/local.git" show-ref --verify --quiet refs/tags/old-tag
+  git -C "$backup/local.git" show-ref --verify --quiet refs/remotes/origin/old-branch
+  git -C "$backup/local.git" show-ref --verify --quiet refs/archive/old
+  git -C "$backup/local.git" show-ref --verify --quiet refs/notes/review
+  git -C "$backup/local.git" show-ref --verify --quiet refs/stash
   [[ "$(git -C "$backup/local.git" for-each-ref --format='%(refname)' refs/gh-repo-reset/worktrees | wc -l)" -eq 3 ]]
 
   git clone -q --mirror "$source" "$mirror"
@@ -168,6 +179,15 @@ STATE_EOF
   [[ "$(git -C "$source" rev-list --count HEAD)" -eq 1 ]]
   [[ "$(git -C "$source" for-each-ref --format='%(refname)' refs/heads | wc -l)" -eq 1 ]]
   [[ -z "$(git -C "$source" for-each-ref --format='%(refname)' refs/tags)" ]]
+  [[ "$(git -C "$source" for-each-ref --format='%(refname)' refs | wc -l)" -eq 2 ]]
+  git -C "$source" show-ref --verify --quiet refs/heads/main
+  git -C "$source" show-ref --verify --quiet refs/remotes/origin/main
+  ! git -C "$source" show-ref --verify --quiet refs/remotes/origin/old-branch
+  ! git -C "$source" show-ref --verify --quiet refs/archive/old
+  ! git -C "$source" show-ref --verify --quiet refs/notes/review
+  ! git -C "$source" show-ref --verify --quiet refs/stash
+  ! git -C "$source" config --local --get-regexp '^branch\.old-branch\.' >/dev/null 2>&1
+  [[ "$(git -C "$source" config --local --name-only --get-regexp '^branch\.main\.' | wc -l)" -eq 2 ]]
   [[ -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)" ]]
   [[ -z "$(git -C "$linked" status --porcelain=v1 --untracked-files=all)" ]]
   [[ -z "$(git -C "$detached" status --porcelain=v1 --untracked-files=all)" ]]
