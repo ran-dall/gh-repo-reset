@@ -67,6 +67,7 @@ restore_detected_state ()
 
   print_restore_result "$dir"
   manual_followup "$dir"
+  reset_local_checkout "$dir"
 }
 
 gh_repo_reset_main() {
@@ -207,6 +208,13 @@ gh_repo_reset_main() {
     warn "Snapshot kept at $BACKUP_DIR"
     return 5
   fi
+
+  if ! prepare_local_checkout_reset "$BACKUP_DIR"; then
+    warn "Local checkout preflight failed; refusing to continue."
+    warn "Snapshot kept at $BACKUP_DIR"
+    return 7
+  fi
+
   local metadata_present
   prepare_initial_commit "$BACKUP_DIR"
 
