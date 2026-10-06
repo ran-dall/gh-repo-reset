@@ -16,12 +16,6 @@ warn ()
     printf '[%s] WARNING: %s\n' "$PROGRAM" "$*" 1>&2
 }
 
-vwarn ()
-{
-    (( ${VERBOSE:-0} )) && warn "$*"
-    return 0
-}
-
 die () 
 { 
     printf '[%s] ERROR: %s\n' "$PROGRAM" "$*" 1>&2;
@@ -86,7 +80,8 @@ record_restore_failure ()
 {
     local label="$*";
     if [[ -n "${BACKUP_DIR:-}" ]]; then
-        printf '%s\n' "$label" >> "$BACKUP_DIR/restore-failures.txt" 2>/dev/null || true;
+        printf '%s\n' "$label" >> "$BACKUP_DIR/restore-failures.txt" \
+          || die "could not record restore failure: $label";
     fi
 }
 
@@ -358,6 +353,20 @@ background_pid_running ()
     return 1
 }
 
+snapshot_job_limit ()
+{
+    local limit="${GH_REPO_RESET_JOBS:-4}";
+    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+    printf '%s\n' "$limit"
+}
+
+snapshot_poll_interval ()
+{
+    local interval="${GH_REPO_RESET_POLL_INTERVAL:-0.05}";
+    [[ "$interval" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || interval=0.05;
+    printf '%s\n' "$interval"
+}
+
 merge_snapshot_worker_manifests ()
 {
     local root="$1" worker name;
@@ -379,11 +388,12 @@ run_snapshot_jobs ()
 {
     local dir="$1";
     shift;
-    local limit="${GH_REPO_RESET_JOBS:-4}" fn pid status=0 progressed idx=0 worker_dir;
+    local limit poll fn pid status=0 progressed idx=0 worker_dir;
     local workers="$dir/.snapshot-workers";
     local -a pids=() next=();
 
-    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+    limit="$(snapshot_job_limit)";
+    poll="$(snapshot_poll_interval)";
     rm -rf "$workers";
     mkdir -p "$workers";
 
@@ -400,7 +410,7 @@ run_snapshot_jobs ()
                 progressed=1;
             done;
             pids=("${next[@]}");
-            (( progressed )) || sleep 0.05;
+            (( progressed )) || sleep "$poll";
         done;
 
         idx=$((idx+1));
@@ -426,10 +436,11 @@ run_bounded_items ()
 {
     local input="$1" worker="$2" workdir="$3";
     shift 3;
-    local limit="${GH_REPO_RESET_JOBS:-4}" item pid status=0 progressed idx=0;
+    local limit poll item pid status=0 progressed idx=0;
     local -a pids=() next=();
 
-    [[ "$limit" =~ ^[1-9][0-9]*$ ]] || limit=4;
+    limit="$(snapshot_job_limit)";
+    poll="$(snapshot_poll_interval)";
 
     while IFS= read -r item || [[ -n "$item" ]]; do
         [[ -n "$item" ]] || continue;
@@ -447,7 +458,7 @@ run_bounded_items ()
                 progressed=1;
             done;
             pids=("${next[@]}");
-            (( progressed )) || sleep 0.05;
+            (( progressed )) || sleep "$poll";
         done;
 
         "$worker" "$workdir" "$idx" "$item" "$@" &
