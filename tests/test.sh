@@ -629,6 +629,32 @@ test_snapshot_guard() (
   GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp" pool_slow pool_fast pool_release
   [[ -e "$tmp/pool-slow.started" && -e "$tmp/pool-fast.started" && -e "$tmp/pool-third.started" && -e "$tmp/pool.release" ]]
 
+  pool_serial_first() {
+    : > "$1/pool-serial-first.started"
+    sleep 0.05
+    : > "$1/pool-serial-first.done"
+  }
+  pool_serial_second() {
+    [[ -e "$1/pool-serial-first.done" ]]
+    : > "$1/pool-serial-second.started"
+  }
+  GH_REPO_RESET_JOBS=1 run_snapshot_jobs "$tmp" pool_serial_first pool_serial_second
+  [[ -e "$tmp/pool-serial-first.started" && -e "$tmp/pool-serial-first.done" && -e "$tmp/pool-serial-second.started" ]]
+
+  pool_fail() {
+    return 1
+  }
+  pool_after_fail() {
+    : > "$1/pool-after-fail.started"
+  }
+  rc=0
+  GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp" pool_fail pool_after_fail || rc=$?
+  [[ "$rc" -ne 0 ]]
+  [[ -e "$tmp/pool-after-fail.started" ]]
+
+  GH_REPO_RESET_JOBS=2 run_snapshot_jobs "$tmp"
+  [[ "$(GH_REPO_RESET_JOBS=invalid snapshot_job_limit)" -eq 4 ]]
+
   snapshot_stream "labels" fail_500 >/dev/null
   grep -Fxq 'labels' "$tmp/snapshot-failures.txt"
   grep -Fqx $'labels\tfailed' "$tmp/snapshot-status.tsv"
