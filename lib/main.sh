@@ -113,7 +113,7 @@ gh_repo_reset_main() {
     record_package_actions_access_followup "$BACKUP_DIR"
     log "Resuming reset: $REPO"
     build_restore_plan "$BACKUP_DIR"
-    print_detected_summary "$BACKUP_DIR"
+    (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
     print_restore_plan_summary "$BACKUP_DIR"
     (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
     restore_detected_state "$BACKUP_DIR"
@@ -206,7 +206,7 @@ gh_repo_reset_main() {
   if has_irreplaceable_metadata; then metadata_present=1; fi
   record_package_actions_access_followup "$BACKUP_DIR"
   build_restore_plan "$BACKUP_DIR"
-  print_detected_summary "$BACKUP_DIR"
+  (( VERBOSE )) && print_detected_summary "$BACKUP_DIR"
   print_restore_plan_summary "$BACKUP_DIR"
   (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
 
@@ -245,86 +245,6 @@ GUARD_EOF
   fi
 
   log "Recreating $REPO..."
-  if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
-    printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
-    return 4
-  fi
-
-  vlog "Recreating with visibility: $VISIBILITY"
-  create_repository "$VISIBILITY"
-  restore_detected_state "$BACKUP_DIR"
-  log "Done. Backup: $BACKUP_DIR"
-}
- "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
-    local -a snapshot_failures=()
-    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
-      mapfile -t snapshot_failures < <(awk 'NF' "$BACKUP_DIR/snapshot-failures.txt")
-    fi
-    if (( ${#snapshot_failures[@]} )); then
-      warn "Snapshot incomplete: $(join_comma "${snapshot_failures[@]}")."
-    else
-      warn "Snapshot incomplete; see $BACKUP_DIR/snapshot-status.tsv"
-    fi
-    [[ -s "$BACKUP_DIR/snapshot-errors.log" ]] && warn "Snapshot errors: $BACKUP_DIR/snapshot-errors.log"
-    if (( VERBOSE )) && [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
-      sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
-    fi
-    warn "No destructive changes were made. Snapshot kept at $BACKUP_DIR"
-    return 5
-  fi
-
-  if ! prepare_local_checkout_reset "$BACKUP_DIR"; then
-    warn "Local checkout preflight failed; refusing to continue."
-    warn "Snapshot kept at $BACKUP_DIR"
-    return 7
-  fi
-
-  local metadata_present
-  prepare_initial_commit "$BACKUP_DIR"
-
-  metadata_present=0
-  if has_irreplaceable_metadata; then metadata_present=1; fi
-  record_package_actions_access_followup "$BACKUP_DIR"
-  build_restore_plan "$BACKUP_DIR"
-  print_detected_summary "$BACKUP_DIR"
-  print_restore_plan_summary "$BACKUP_DIR"
-  (( VERBOSE )) && print_restore_plan_details "$BACKUP_DIR"
-
-  if (( DRY_RUN )); then
-    log "Dry run complete — no changes made."
-    (( metadata_present )) && log "A real reset requires --allow-metadata-loss."
-    log "Snapshot: $BACKUP_DIR"
-    return 0
-  fi
-
-  if (( metadata_present && ! ALLOW_METADATA_LOSS )); then
-    cat >&2 <<GUARD_EOF
-
-[$PROGRAM] Refusing to delete $REPO because GitHub-only history or credential material
-cannot be round-tripped. The safety backup was still created at:
-  $BACKUP_DIR
-
-Inspect it, provide any recoverable secret values with --secrets-dir, then rerun with
---allow-metadata-loss if this reset is really intended.
-GUARD_EOF
-    return 3
-  fi
-
-  confirm_reset
-  # shellcheck disable=SC1090
-  source "$BACKUP_DIR/repo-state.sh"
-
-  if [[ -s "$BACKUP_DIR/package-reset-targets.tsv" ]]; then
-    log "Deleting detected same-owner GitHub Packages..."
-    if ! delete_reset_packages "$BACKUP_DIR"; then
-      warn "Package cleanup failed; refusing to delete $REPO."
-      warn "GitHub package deletion requires package admin access; classic tokens need read:packages and delete:packages."
-      [[ -s "$BACKUP_DIR/package-delete-errors.log" ]] && warn "Package errors: $BACKUP_DIR/package-delete-errors.log"
-      return 6
-    fi
-  fi
-
-  log "Deleting and recreating $REPO..."
   if ! gh repo delete "$REPO" --yes >/dev/null 2>&1; then
     printf '[%s] Delete failed. Try: gh auth refresh -s delete_repo\nBackup: %s\n' "$PROGRAM" "$BACKUP_DIR" >&2
     return 4
