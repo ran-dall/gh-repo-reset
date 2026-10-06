@@ -403,8 +403,7 @@ prepare_local_checkout_reset ()
 
 reset_local_checkout ()
 {
-    local dir="$1" root remote_name expected remote_head ref branch_section status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
-    local -a branch_sections=();
+    local dir="$1" root remote_name expected remote_head ref branch_key status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     remote_name="$(cat "$dir/local-remote.name" 2>/dev/null || printf origin)";
