@@ -103,7 +103,7 @@ JSON_EOF
 
 test_git() (
   set -Eeuo pipefail
-  local tmp source linked detached stale mirror remote backup tree root
+  local tmp source linked detached stale broken mirror remote backup dirty_backup broken_backup tree root rc
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   source="$tmp/source"
@@ -148,6 +148,29 @@ test_git() (
   BACKUP_DIR="$backup"
   source ./lib/core.sh
   source ./lib/git.sh
+
+  dirty_backup="$tmp/dirty-backup"
+  mkdir -p "$dirty_backup"
+  printf 'dirty\n' >> "$linked/file.txt"
+  rc=0
+  (cd "$source" && prepare_local_checkout_reset "$dirty_backup") || rc=$?
+  [[ "$rc" -ne 0 ]]
+  [[ ! -d "$dirty_backup/local.git" ]]
+  git -C "$linked" checkout -- file.txt
+
+  broken="$tmp/broken"
+  broken_backup="$tmp/broken-backup"
+  git -C "$source" worktree add -q --detach "$broken" HEAD~1
+  mv "$broken/.git" "$broken/.git.bak"
+  mkdir -p "$broken_backup"
+  rc=0
+  (cd "$source" && prepare_local_checkout_reset "$broken_backup") || rc=$?
+  [[ "$rc" -ne 0 ]]
+  [[ -d "$broken" ]]
+  git -C "$source" worktree list --porcelain | grep -Fq "worktree $broken"
+  [[ ! -d "$broken_backup/local.git" ]]
+  mv "$broken/.git.bak" "$broken/.git"
+  git -C "$source" worktree remove --force "$broken"
 
   (cd "$source" && prepare_local_checkout_reset "$backup")
   [[ "$(cat "$backup/local-checkout.path")" == "$source" ]]
