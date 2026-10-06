@@ -1,6 +1,5 @@
 # CLI state and lifecycle orchestration.
 
-API_VERSION="2026-03-10"
 REPO=""
 BACKUP_ROOT="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/gh-repo-reset"
 BACKUP_ROOT_EXPLICIT=0
