@@ -126,32 +126,34 @@ record_package_actions_access_followup ()
 
 snapshot_package_reset_targets ()
 {
-    local dir="$1" type name url out;
+    local dir="$1" type name url out repo_name;
     source "$dir/repo-state.sh";
     out="$dir/package-reset-targets.tsv";
+    repo_name="${REPO#*/}";
     : > "$out";
 
-    [[ -s "$dir/package-actions-access.tsv" ]] || {
-        record_snapshot_status "GitHub package reset targets" absent;
-        return 0;
-    };
+    # A repository reset always targets the same-owner package whose package
+    # name matches the repository name. A 404 during deletion is treated as
+    # already absent, so this is safe even when that package was never published.
+    printf 'container\t%s\n' "$repo_name" >> "$out";
 
-    while IFS=$'\t' read -r type name url; do
-        [[ -n "$type" && -n "$name" ]] || continue;
-        [[ "$name" != "<registry-used>" && "$name" != "<workflow-uses-packages>" ]] || continue;
-        case "$type" in
-            container|npm|maven|rubygems|docker|nuget) ;;
-            *) continue ;;
-        esac;
-        printf '%s\t%s\n' "$type" "$name" >> "$out";
-    done < "$dir/package-actions-access.tsv";
+    # Also include any other concrete same-owner packages actually referenced
+    # by the repository snapshot. Registry-only usage without a package name
+    # cannot be safely targeted automatically.
+    if [[ -s "$dir/package-actions-access.tsv" ]]; then
+        while IFS=$'\t' read -r type name url; do
+            [[ -n "$type" && -n "$name" ]] || continue;
+            [[ "$name" != "<registry-used>" && "$name" != "<workflow-uses-packages>" ]] || continue;
+            case "$type" in
+                container|npm|maven|rubygems|docker|nuget) ;;
+                *) continue ;;
+            esac;
+            printf '%s\t%s\n' "$type" "$name" >> "$out";
+        done < "$dir/package-actions-access.tsv";
+    fi;
 
     sort -u "$out" -o "$out";
-    if [[ -s "$out" ]]; then
-        record_snapshot_status "GitHub package reset targets" captured;
-    else
-        record_snapshot_status "GitHub package reset targets" absent;
-    fi
+    record_snapshot_status "GitHub package reset targets" captured
 }
 
 delete_reset_packages ()
