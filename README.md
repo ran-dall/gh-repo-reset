@@ -6,7 +6,7 @@ The new repository gets **one brand-new root commit named `Initial commit`**. Ol
 
 Version is intentionally pinned to **`v0.0.0-1`**.
 
-> This deletes and recreates a repository. It also deletes concrete same-owner GitHub Packages detected from the repository, such as `ghcr.io/OWNER/REPO` and `ghcr.io/OWNER/sidecar`. Run `--dry-run` first.
+> This deletes and recreates a repository. It always treats `ghcr.io/OWNER/REPO` as a reset target, and can also delete other concrete same-owner GitHub Packages actually referenced by the repository. Run `--dry-run` first.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ It cannot automatically recover:
 
 It also intentionally does not recreate issues, pull requests, releases, discussions, stars, forks, old branches/tags, old commit history, or package artifacts deleted as reset targets. Non-default branch protection cannot be functional because those branches are intentionally not recreated.
 
-When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, the backup records likely package dependencies in `package-actions-access.tsv`; these are candidates inferred from repository content, not proof of the old Manage Actions access grants. Every concrete same-owner package reference is copied to `package-reset-targets.tsv` and deleted before repository deletion, including sidecars such as `ghcr.io/OWNER/tailscale-bunny`. Registry usage without a concrete package name stays a manual follow-up.
+When something needs manual re-authorization, the tool warns and uses `xdg-open` to open the relevant GitHub settings page when available. For GitHub Packages, `container/REPO` is always written to `package-reset-targets.tsv`, so a repository such as `Kaiju-Ind/twenty` targets `ghcr.io/Kaiju-Ind/twenty` even if that string does not appear in the source tree. Other concrete same-owner package references are added only when they are actually detected in the repository. Registry usage without a concrete package name stays a manual follow-up.
 
 ## Layout
 
