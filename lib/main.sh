@@ -187,11 +187,27 @@ gh_repo_reset_main() {
 
   if [[ ! -s "$BACKUP_DIR/snapshot-status.tsv" ]]; then
     warn "Snapshot status manifest is empty; refusing to continue."
-    warn "Snapshot kept at $BACKUP_DIR"
+    warn "No destructive changes were made. Snapshot kept at $BACKUP_DIR"
     return 5
   fi
 
-  if grep -Eq '[[:space:]]failed
+  if grep -Eq '[[:space:]]failed$' "$BACKUP_DIR/snapshot-status.tsv" || [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+    local -a snapshot_failures=()
+    if [[ -s "$BACKUP_DIR/snapshot-failures.txt" ]]; then
+      mapfile -t snapshot_failures < <(awk 'NF' "$BACKUP_DIR/snapshot-failures.txt")
+    fi
+    if (( ${#snapshot_failures[@]} )); then
+      warn "Snapshot incomplete: $(join_comma "${snapshot_failures[@]}")."
+    else
+      warn "Snapshot incomplete; see $BACKUP_DIR/snapshot-status.tsv"
+    fi
+    [[ -s "$BACKUP_DIR/snapshot-errors.log" ]] && warn "Snapshot errors: $BACKUP_DIR/snapshot-errors.log"
+    if (( VERBOSE )) && [[ -s "$BACKUP_DIR/snapshot-errors.log" ]]; then
+      sed 's/^/  /' "$BACKUP_DIR/snapshot-errors.log" >&2 || true
+    fi
+    warn "No destructive changes were made. Snapshot kept at $BACKUP_DIR"
+    return 5
+  fi
 
   if ! prepare_local_checkout_reset "$BACKUP_DIR"; then
     warn "Local checkout preflight failed; refusing to continue."
