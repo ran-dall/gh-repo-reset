@@ -280,17 +280,30 @@ print_detected_summary ()
 
 print_restore_plan_summary ()
 {
-    local dir="$1" mode feature detail auto=0 manual=();
+    local dir="$1" mode feature detail auto=0 manual_count=0 packages=0 worktrees=0;
+    local manual=() parts=();
+
     while IFS=$'\t' read -r mode feature detail; do
         [[ -n "$mode" ]] || continue;
         if [[ "$mode" == auto ]]; then
             auto=$((auto+1));
         else
+            manual_count=$((manual_count+1));
             manual+=("$detail");
         fi;
     done < "$dir/restore-plan.tsv";
-    log "Will restore $auto detected configuration group(s) automatically."
-    ((${#manual[@]})) && warn "Manual after reset: $(join_semicolon "${manual[@]}")"
+
+    packages="$(count_nonempty_lines "$dir/package-reset-targets.tsv")";
+    worktrees="$(count_nonempty_lines "$dir/local-worktrees.tsv")";
+
+    (( auto )) && parts+=("$auto restore group(s)");
+    (( packages )) && parts+=("$packages package deletion(s)");
+    (( worktrees )) && parts+=("$worktrees local worktree(s)");
+    (( manual_count )) && parts+=("$manual_count manual follow-up(s)");
+    (( ${#parts[@]} )) || parts+=("no detected configuration");
+
+    log "Plan: $(join_semicolon "${parts[@]}").";
+    (( ${#manual[@]} )) && warn "Manual after reset: $(join_semicolon "${manual[@]}")";
     return 0
 }
 
@@ -310,6 +323,6 @@ print_restore_result ()
     if (( failures )); then
         warn "$failures restore operation(s) failed; see $dir/restore-failures.txt";
     else
-        log "Detected configuration restore completed."
+        vlog "Detected configuration restore completed.";
     fi
 }
