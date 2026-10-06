@@ -300,7 +300,7 @@ prepare_local_checkout_reset ()
 
 reset_local_checkout ()
 {
-    local dir="$1" root expected remote_head ref branch_name status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
+    local dir="$1" root expected remote_head ref branch_section status wt old_head expected_count actual_count unexpected_refs unexpected_branch_config;
     [[ -s "$dir/local-checkout.path" ]] || return 0;
     root="$(cat "$dir/local-checkout.path")";
     [[ -d "$root" ]] || die "local checkout no longer exists: $root";
@@ -332,16 +332,19 @@ reset_local_checkout ()
 
     git -C "$root" checkout -B "$DEFAULT_BRANCH" "$expected" >/dev/null 2>&1 || die "could not reset local $DEFAULT_BRANCH";
 
-    # Drop every branch-specific config section before rebuilding only main's
-    # upstream. Removing a branch ref directly does not clean branch.<name>.*
-    # settings, so leaving these behind would accumulate stale local metadata.
-    while IFS= read -r ref; do
-        [[ -n "$ref" ]] || continue;
-        branch_name="${ref#refs/heads/}";
-        git -C "$root" config --remove-section "branch.$branch_name" >/dev/null 2>&1 || true;
-    done < <(git -C "$root" for-each-ref --format='%(refname)' refs/heads);
-    git -C "$root" config --remove-section "branch.$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
-    git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true;
+    # Drop every local branch config section before rebuilding only main's
+    # upstream. This also catches orphaned branch.<name>.* settings whose branch
+    # ref was deleted before this reset.
+    while IFS= read -r branch_section; do
+        [[ -n "$branch_section" ]] || continue;
+        git -C "$root" config --local --remove-section "$branch_section" >/dev/null 2>&1 || true;
+    done < <(
+        git -C "$root" config --local --name-only --get-regexp '^branch\\.' 2>/dev/null \
+          | awk -F. 'NF >= 3 { key=$NF; sub("\\." key "$", ""); print }' \
+          | sort -u
+    );
+    git -C "$root" branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
+      || die "could not set local $DEFAULT_BRANCH to track origin/$DEFAULT_BRANCH";
 
     while IFS= read -r ref; do
         [[ -n "$ref" ]] || continue;
@@ -369,6 +372,11 @@ reset_local_checkout ()
 
     unexpected_refs="$(git -C "$root" for-each-ref --format='%(refname)' refs | grep -Fvx "refs/heads/$DEFAULT_BRANCH" | grep -Fvx "refs/remotes/origin/$DEFAULT_BRANCH" || true)";
     [[ -z "$unexpected_refs" ]] || die "local repository still has unexpected refs: $(printf '%s' "$unexpected_refs" | paste -sd, -)";
+
+    [[ "$(git -C "$root" config --local --get "branch.$DEFAULT_BRANCH.remote" 2>/dev/null || true)" == origin ]] \
+      || die "local $DEFAULT_BRANCH is not configured to track origin";
+    [[ "$(git -C "$root" config --local --get "branch.$DEFAULT_BRANCH.merge" 2>/dev/null || true)" == "refs/heads/$DEFAULT_BRANCH" ]] \
+      || die "local $DEFAULT_BRANCH has an unexpected upstream merge ref";
 
     unexpected_branch_config="$(git -C "$root" config --local --name-only --get-regexp '^branch\.' 2>/dev/null | grep -Fvx "branch.$DEFAULT_BRANCH.remote" | grep -Fvx "branch.$DEFAULT_BRANCH.merge" || true)";
     [[ -z "$unexpected_branch_config" ]] || die "local repository still has stale branch config: $(printf '%s' "$unexpected_branch_config" | paste -sd, -)";
